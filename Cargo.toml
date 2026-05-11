@@ -1,0 +1,25 @@
+[package]
+name = "pdf-encrypt"
+version = "0.1.0"
+edition = "2021"
+authors = ["Will 保哥 <doggy.huang@gmail.com>"]
+description = "A Rust command line utility that encrypts and decrypts PDF documents."
+license = "MIT"
+repository = "https://github.com/doggy8088/pdf-encrypt"
+homepage = "https://github.com/doggy8088/pdf-encrypt"
+readme = "README.md"
+keywords = ["pdf", "encryption", "decrypt", "cli"]
+categories = ["command-line-utilities", "cryptography"]
+
+[dependencies]
+lopdf = "0.40"
+clap = { version = "4.3", features = ["derive"] }
+anyhow = "1.0"
+getrandom = { version = "0.4", features = ["std"] }
+
+[dev-dependencies]
+tempfile = "3.8"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"
