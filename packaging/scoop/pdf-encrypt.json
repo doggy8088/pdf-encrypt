@@ -1,0 +1,30 @@
+{
+  "version": "0.1.0",
+  "description": "Encrypt and decrypt PDF documents.",
+  "homepage": "https://github.com/doggy8088/pdf-encrypt",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/doggy8088/pdf-encrypt/releases/download/v0.1.0/pdf-encrypt-x86_64-pc-windows-msvc.zip",
+      "hash": "REPLACE_WITH_X86_64_WINDOWS_MSVC_SHA256"
+    },
+    "arm64": {
+      "url": "https://github.com/doggy8088/pdf-encrypt/releases/download/v0.1.0/pdf-encrypt-aarch64-pc-windows-msvc.zip",
+      "hash": "REPLACE_WITH_AARCH64_WINDOWS_MSVC_SHA256"
+    }
+  },
+  "bin": "pdf-encrypt.exe",
+  "checkver": {
+    "github": "https://github.com/doggy8088/pdf-encrypt"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/doggy8088/pdf-encrypt/releases/download/v$version/pdf-encrypt-x86_64-pc-windows-msvc.zip"
+      },
+      "arm64": {
+        "url": "https://github.com/doggy8088/pdf-encrypt/releases/download/v$version/pdf-encrypt-aarch64-pc-windows-msvc.zip"
+      }
+    }
+  }
+}

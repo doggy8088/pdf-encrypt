@@ -23,3 +23,30 @@ tempfile = "3.8"
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[package.metadata.deb]
+section = "utils"
+priority = "optional"
+assets = [
+    ["target/release/pdf-encrypt", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/pdf-encrypt/README.md", "644"],
+    ["LICENSE", "usr/share/doc/pdf-encrypt/LICENSE", "644"],
+]
+extended-description = """\
+pdf-encrypt is a command line tool that encrypts, decrypts, and re-encrypts PDF
+files with configurable passwords, viewer permissions, metadata, and PDF standard
+security handler algorithms.
+"""
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/pdf-encrypt", dest = "/usr/bin/pdf-encrypt", mode = "755" },
+    { source = "README.md", dest = "/usr/share/doc/pdf-encrypt/README.md", mode = "644", doc = true },
+    { source = "LICENSE", dest = "/usr/share/doc/pdf-encrypt/LICENSE", mode = "644", doc = true },
+]
+
+[package.metadata.wix]
+upgrade-guid = "C09D09C1-74C3-48CB-94EB-8520066240E5"
+path-guid = "24DFA77D-CFCE-42D5-86E0-C7A68428A878"
+license = false
+eula = false
