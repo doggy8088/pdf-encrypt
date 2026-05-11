@@ -11,7 +11,7 @@
 - 可用 `--input-open-password` 先開啟已加密輸入檔，再重新加密成新密碼或新演算法。
 - 可用 `-ro` / `--read-only` 將開啟文件後的權限設定為 allow all 並 deny modify。
 - 加密前可用 `--doc-*` 參數更新 PDF Document Info / XMP metadata。
-- 可用 `--in-place` 直接加密並覆蓋原輸入檔案。
+- 可用 `--in-place` 直接加密並覆蓋原輸入檔案，並可用 `--force` 略過覆蓋確認。
 
 > 注意：PDF 權限是 PDF reader 應遵守的限制，不等同於無法被破解的存取控制。真正保護內容機密性的是加密密碼本身。
 
@@ -91,6 +91,17 @@ pdf-encrypt encrypt \
   --owner-password owner-secret \
   --read-only \
   --in-place
+```
+
+當輸出檔案已存在，或使用 `--in-place` 會覆蓋原檔時，CLI 會先提示確認。若已確認要覆蓋，可加上 `--force` 略過提示：
+
+```bash
+pdf-encrypt encrypt \
+  -i report.pdf \
+  --owner-password owner-secret \
+  --read-only \
+  --in-place \
+  --force
 ```
 
 `--open-password` 是加密後「開啟文件」所需的密碼。未指定 `--owner-password` 時，擁有者密碼會自動使用相同密碼；若只指定 `--owner-password` 而沒有指定 `--open-password`，則輸出 PDF 不需要開啟密碼。若要保留一組不同的完整管理權限密碼，可另外指定：

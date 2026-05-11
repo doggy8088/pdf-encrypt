@@ -191,6 +191,7 @@ fn cli_encrypt_in_place_overwrites_input_file() {
         .arg("owner")
         .arg("--read-only")
         .arg("--in-place")
+        .arg("--force")
         .output()
         .expect("CLI should run");
 

@@ -9,6 +9,7 @@ use pdf_encrypt::{
 };
 use std::ffi::{OsStr, OsString};
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -54,6 +55,10 @@ struct EncryptArgs {
     /// 直接加密並覆蓋原輸入檔案；會先寫入暫存檔，成功後才取代原檔
     #[arg(long = "in-place", conflicts_with = "output")]
     in_place: bool,
+
+    /// 覆蓋既有檔案時不提示確認
+    #[arg(short, long)]
+    force: bool,
 
     /// 加密後開啟輸出 PDF 所需的密碼；未指定 --owner-password 時也作為擁有者密碼
     #[arg(short = 'p', long, value_name = "PASSWORD")]
@@ -223,6 +228,7 @@ fn run_encrypt(args: &EncryptArgs) -> anyhow::Result<()> {
         .output
         .clone()
         .unwrap_or_else(|| default_output_path(&args.input, "encrypted"));
+    confirm_overwrite_if_needed(&output_path, args.force)?;
     let report = encrypt_pdf_with_options(&args.input, &output_path, &options)?;
 
     println!("已完成加密：{}", output_path.display());
@@ -231,6 +237,8 @@ fn run_encrypt(args: &EncryptArgs) -> anyhow::Result<()> {
 }
 
 fn run_encrypt_in_place(args: &EncryptArgs, options: &EncryptOptions) -> anyhow::Result<()> {
+    confirm_overwrite(&args.input, args.force)?;
+
     let input_permissions = fs::metadata(&args.input)
         .with_context(|| format!("無法讀取輸入檔案 metadata：{}", args.input.display()))?
         .permissions();
@@ -264,6 +272,33 @@ fn run_encrypt_in_place(args: &EncryptArgs, options: &EncryptOptions) -> anyhow:
     println!("已完成加密並覆蓋原檔：{}", args.input.display());
     print_report(&report);
     Ok(())
+}
+
+fn confirm_overwrite_if_needed(path: &Path, force: bool) -> anyhow::Result<()> {
+    if force || !path.exists() {
+        return Ok(());
+    }
+
+    confirm_overwrite(path, force)
+}
+
+fn confirm_overwrite(path: &Path, force: bool) -> anyhow::Result<()> {
+    if force {
+        return Ok(());
+    }
+
+    eprint!("即將覆蓋檔案：{}，是否繼續？[y/N] ", path.display());
+    io::stderr().flush().context("無法刷新覆蓋確認提示")?;
+
+    let mut answer = String::new();
+    io::stdin()
+        .read_line(&mut answer)
+        .context("無法讀取覆蓋確認回覆")?;
+
+    match answer.trim().to_ascii_lowercase().as_str() {
+        "y" | "yes" => Ok(()),
+        _ => anyhow::bail!("已取消覆蓋：{}", path.display()),
+    }
 }
 
 fn run_decrypt(args: &DecryptArgs) -> anyhow::Result<()> {
@@ -452,6 +487,25 @@ mod tests {
 
         assert!(args.in_place);
         assert!(args.output.is_none());
+    }
+
+    #[test]
+    fn force_flag_is_parsed() {
+        let cli = Cli::try_parse_from([
+            "pdf-encrypt",
+            "encrypt",
+            "--input",
+            "input.pdf",
+            "--owner-password",
+            "owner",
+            "--force",
+        ])
+        .unwrap();
+        let Command::Encrypt(args) = cli.command else {
+            panic!("expected encrypt command");
+        };
+
+        assert!(args.force);
     }
 
     #[test]
