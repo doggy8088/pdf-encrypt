@@ -5,6 +5,7 @@
 
 use std::fs;
 use std::path::Path;
+use std::process::Command as ProcessCommand;
 
 use lopdf::{decode_text_string, dictionary, Document, Object, Permissions, Stream};
 use pdf_encrypt::{
@@ -174,6 +175,44 @@ fn encrypts_with_aes128_and_restricted_permissions() {
         .expect("AES-128 encrypted PDF should open with password");
     assert!(unlocked.was_encrypted());
     assert_eq!(unlocked.get_pages().len(), 1);
+}
+
+#[test]
+fn cli_encrypt_in_place_overwrites_input_file() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let input_path = dir.path().join("plain.pdf");
+    make_simple_pdf(&input_path);
+
+    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_pdf-encrypt"))
+        .arg("encrypt")
+        .arg("--input")
+        .arg(&input_path)
+        .arg("--owner-password")
+        .arg("owner")
+        .arg("--read-only")
+        .arg("--in-place")
+        .output()
+        .expect("CLI should run");
+
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!dir.path().join("plain_encrypted.pdf").exists());
+
+    let locked = Document::load(&input_path).expect("in-place encrypted PDF should load");
+    assert!(locked.was_encrypted());
+
+    let opened_without_password = Document::load_with_password(&input_path, "")
+        .expect("in-place encrypted PDF should open without password");
+    assert!(opened_without_password.was_encrypted());
+    assert_eq!(opened_without_password.get_pages().len(), 1);
+
+    let opened_with_owner = Document::load_with_password(&input_path, "owner")
+        .expect("owner password should open in-place encrypted PDF");
+    assert!(opened_with_owner.was_encrypted());
+    assert_eq!(opened_with_owner.get_pages().len(), 1);
 }
 
 #[test]

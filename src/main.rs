@@ -1,5 +1,6 @@
 //! Command line interface for the `pdf-encrypt` tool.
 
+use anyhow::Context;
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use lopdf::Permissions;
 use pdf_encrypt::{
@@ -7,7 +8,9 @@ use pdf_encrypt::{
     EncryptOptions, EncryptionAlgorithm, PdfCryptoReport,
 };
 use std::ffi::{OsStr, OsString};
+use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// PDF 加密與解密命令列工具。
 #[derive(Debug, Parser)]
@@ -45,8 +48,12 @@ struct EncryptArgs {
     input: PathBuf,
 
     /// 輸出 PDF 檔案路徑 (預設為 input 加密字尾)
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(short, long, value_name = "FILE", conflicts_with = "in_place")]
     output: Option<PathBuf>,
+
+    /// 直接加密並覆蓋原輸入檔案；會先寫入暫存檔，成功後才取代原檔
+    #[arg(long = "in-place", conflicts_with = "output")]
+    in_place: bool,
 
     /// 加密後開啟輸出 PDF 所需的密碼；未指定 --owner-password 時也作為擁有者密碼
     #[arg(short = 'p', long, value_name = "PASSWORD")]
@@ -206,14 +213,55 @@ fn main() {
 }
 
 fn run_encrypt(args: &EncryptArgs) -> anyhow::Result<()> {
+    let options = encrypt_options_from_args(args)?;
+
+    if args.in_place {
+        return run_encrypt_in_place(args, &options);
+    }
+
     let output_path = args
         .output
         .clone()
         .unwrap_or_else(|| default_output_path(&args.input, "encrypted"));
-    let options = encrypt_options_from_args(args)?;
     let report = encrypt_pdf_with_options(&args.input, &output_path, &options)?;
 
     println!("已完成加密：{}", output_path.display());
+    print_report(&report);
+    Ok(())
+}
+
+fn run_encrypt_in_place(args: &EncryptArgs, options: &EncryptOptions) -> anyhow::Result<()> {
+    let input_permissions = fs::metadata(&args.input)
+        .with_context(|| format!("無法讀取輸入檔案 metadata：{}", args.input.display()))?
+        .permissions();
+    let temp_output_path = in_place_temp_output_path(&args.input);
+
+    let report = match encrypt_pdf_with_options(&args.input, &temp_output_path, options) {
+        Ok(report) => report,
+        Err(err) => {
+            remove_temp_file_if_exists(&temp_output_path);
+            return Err(err);
+        }
+    };
+
+    if let Err(err) = fs::set_permissions(&temp_output_path, input_permissions).with_context(|| {
+        format!(
+            "無法套用原輸入檔案權限到暫存檔：{}",
+            temp_output_path.display()
+        )
+    }) {
+        remove_temp_file_if_exists(&temp_output_path);
+        return Err(err);
+    }
+
+    if let Err(err) = fs::rename(&temp_output_path, &args.input)
+        .with_context(|| format!("無法用加密後暫存檔取代原輸入檔案：{}", args.input.display()))
+    {
+        remove_temp_file_if_exists(&temp_output_path);
+        return Err(err);
+    }
+
+    println!("已完成加密並覆蓋原檔：{}", args.input.display());
     print_report(&report);
     Ok(())
 }
@@ -323,6 +371,32 @@ fn default_output_path(input: &Path, suffix: &str) -> PathBuf {
     path
 }
 
+fn in_place_temp_output_path(input: &Path) -> PathBuf {
+    let parent = input
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let file_name = input
+        .file_name()
+        .unwrap_or_else(|| OsStr::new("output.pdf"));
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+
+    let mut temp_file_name = OsString::from(".");
+    temp_file_name.push(file_name);
+    temp_file_name.push(format!(
+        ".pdf-encrypt-{}-{timestamp}.tmp",
+        std::process::id()
+    ));
+    parent.join(temp_file_name)
+}
+
+fn remove_temp_file_if_exists(path: &Path) {
+    let _ = fs::remove_file(path);
+}
+
 fn print_report(report: &PdfCryptoReport) {
     println!("operation: {}", report.operation.label());
     if let Some(algorithm) = report.algorithm {
@@ -345,6 +419,56 @@ mod tests {
     fn default_encrypt_output_uses_encrypted_suffix() {
         let output = default_output_path(Path::new("report.pdf"), "encrypted");
         assert_eq!(output, PathBuf::from("report_encrypted.pdf"));
+    }
+
+    #[test]
+    fn in_place_temp_output_stays_next_to_input() {
+        let temp_path = in_place_temp_output_path(Path::new("docs/report.pdf"));
+
+        assert_eq!(temp_path.parent(), Some(Path::new("docs")));
+        assert!(temp_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(
+                |name| name.starts_with(".report.pdf.pdf-encrypt-") && name.ends_with(".tmp")
+            ));
+    }
+
+    #[test]
+    fn in_place_flag_is_parsed() {
+        let cli = Cli::try_parse_from([
+            "pdf-encrypt",
+            "encrypt",
+            "--input",
+            "input.pdf",
+            "--owner-password",
+            "owner",
+            "--in-place",
+        ])
+        .unwrap();
+        let Command::Encrypt(args) = cli.command else {
+            panic!("expected encrypt command");
+        };
+
+        assert!(args.in_place);
+        assert!(args.output.is_none());
+    }
+
+    #[test]
+    fn in_place_conflicts_with_output() {
+        let result = Cli::try_parse_from([
+            "pdf-encrypt",
+            "encrypt",
+            "--input",
+            "input.pdf",
+            "--output",
+            "output.pdf",
+            "--owner-password",
+            "owner",
+            "--in-place",
+        ]);
+
+        assert!(result.is_err());
     }
 
     #[test]
