@@ -1,14 +1,13 @@
 //! Command line interface for the `pdf-encrypt` tool.
 
-use std::path::{Path, PathBuf};
-
-use anyhow::{bail, Context};
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use lopdf::Permissions;
 use pdf_encrypt::{
     decrypt_pdf_with_options, encrypt_pdf_with_options, DecryptOptions, EncryptOptions,
     EncryptionAlgorithm, PdfCryptoReport,
 };
+use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
 
 /// PDF 加密與解密命令列工具。
 #[derive(Debug, Parser)]
@@ -37,7 +36,8 @@ enum Command {
 #[command(group(
     ArgGroup::new("encrypt_password")
         .required(true)
-        .args(["user_password", "read_only_password"])
+        .multiple(true)
+        .args(["open_password", "owner_password"])
 ))]
 struct EncryptArgs {
     /// 輸入 PDF 檔案路徑
@@ -48,31 +48,21 @@ struct EncryptArgs {
     #[arg(short, long, value_name = "FILE")]
     output: Option<PathBuf>,
 
-    /// 開啟加密輸出檔所需的使用者密碼；預設允許全部權限
-    #[arg(
-        short = 'p',
-        long,
-        value_name = "PASSWORD",
-        conflicts_with = "read_only_password"
-    )]
-    user_password: Option<String>,
+    /// 加密後開啟輸出 PDF 所需的密碼；未指定 --owner-password 時也作為擁有者密碼
+    #[arg(short = 'p', long, value_name = "PASSWORD")]
+    open_password: Option<String>,
 
-    /// 讀取專用密碼；預設禁止修改、註解、填表與重組頁面
-    #[arg(
-        long,
-        value_name = "PASSWORD",
-        conflicts_with = "user_password",
-        requires = "owner_password"
-    )]
-    read_only_password: Option<String>,
-
-    /// 擁有者密碼；使用 read-only password 時必填且不可相同
+    /// 擁有者密碼；未指定 --open-password 時，輸出 PDF 不需要開啟密碼
     #[arg(long, value_name = "PASSWORD")]
     owner_password: Option<String>,
 
     /// 輸入檔若已加密，用此密碼先開啟再重新加密
     #[arg(long, value_name = "PASSWORD")]
-    open_password: Option<String>,
+    input_open_password: Option<String>,
+
+    /// 將開啟文件後的權限設為 allow all 並 deny modify；也可使用 -ro
+    #[arg(long = "read-only", visible_alias = "ro")]
+    read_only: bool,
 
     /// 加密演算法
     #[arg(long, value_enum, default_value_t = CliAlgorithm::Aes256)]
@@ -170,7 +160,7 @@ impl CliPermission {
 }
 
 fn main() {
-    let cli = Cli::parse();
+    let cli = parse_cli_from(std::env::args_os()).unwrap_or_else(|err| err.exit());
 
     let result = match &cli.command {
         Command::Encrypt(args) => run_encrypt(args),
@@ -209,29 +199,38 @@ fn run_decrypt(args: &DecryptArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn encrypt_options_from_args(args: &EncryptArgs) -> anyhow::Result<EncryptOptions> {
-    let mut options = if let Some(read_only_password) = &args.read_only_password {
-        let owner_password = args
-            .owner_password
-            .clone()
-            .context("--read-only-password requires --owner-password")?;
-        if owner_password == *read_only_password {
-            bail!("--owner-password must be different from --read-only-password");
-        }
-        EncryptOptions::with_read_only_password(read_only_password.clone(), owner_password)
-    } else {
-        let user_password = args
-            .user_password
-            .clone()
-            .context("encrypt requires --user-password or --read-only-password")?;
-        let mut options = EncryptOptions::with_user_password(user_password.clone());
-        options.owner_password = args.owner_password.clone().unwrap_or(user_password);
-        options
-    };
+fn parse_cli_from<I, T>(args: I) -> std::result::Result<Cli, clap::Error>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString>,
+{
+    Cli::try_parse_from(
+        args.into_iter()
+            .map(|arg| normalize_read_only_alias(arg.into())),
+    )
+}
 
-    options.open_password = args.open_password.clone();
+fn normalize_read_only_alias(arg: OsString) -> OsString {
+    if arg == OsStr::new("-ro") {
+        OsString::from("--read-only")
+    } else {
+        arg
+    }
+}
+
+fn encrypt_options_from_args(args: &EncryptArgs) -> anyhow::Result<EncryptOptions> {
+    let open_password = args.open_password.clone().unwrap_or_default();
+    let owner_password = args
+        .owner_password
+        .clone()
+        .unwrap_or_else(|| open_password.clone());
+
+    let mut options = EncryptOptions::with_open_password(open_password);
+    options.owner_password = owner_password;
+    options.input_open_password = args.input_open_password.clone();
     options.algorithm = args.algorithm.into();
-    options.permissions = permissions_from_args(&args.allow, &args.deny, options.permissions);
+    options.permissions =
+        permissions_from_args(&args.allow, &args.deny, options.permissions, args.read_only);
     options.encrypt_metadata = !args.no_encrypt_metadata;
     Ok(options)
 }
@@ -240,14 +239,21 @@ fn permissions_from_args(
     allow: &[CliPermission],
     deny: &[CliPermission],
     default_permissions: Permissions,
+    read_only: bool,
 ) -> Permissions {
-    let mut permissions = if allow.is_empty() {
+    let mut permissions = if read_only {
+        Permissions::all()
+    } else if allow.is_empty() {
         default_permissions
     } else {
         allow
             .iter()
             .fold(Permissions::empty(), |acc, item| acc | item.permissions())
     };
+
+    if read_only {
+        permissions &= !Permissions::MODIFIABLE;
+    }
 
     for item in deny {
         permissions &= !item.permissions();
@@ -301,6 +307,7 @@ mod tests {
             &[CliPermission::Print, CliPermission::Copy],
             &[],
             Permissions::all(),
+            false,
         );
 
         assert!(permissions.contains(Permissions::PRINTABLE));
@@ -310,20 +317,42 @@ mod tests {
 
     #[test]
     fn deny_list_removes_permissions_from_default() {
-        let permissions = permissions_from_args(&[], &[CliPermission::Copy], Permissions::all());
+        let permissions =
+            permissions_from_args(&[], &[CliPermission::Copy], Permissions::all(), false);
 
         assert!(!permissions.contains(Permissions::COPYABLE));
         assert!(permissions.contains(Permissions::PRINTABLE));
     }
 
     #[test]
-    fn read_only_password_sets_restricted_user_password() {
+    fn open_password_sets_output_open_password_and_default_owner_password() {
         let cli = Cli::try_parse_from([
             "pdf-encrypt",
             "encrypt",
             "--input",
             "input.pdf",
-            "--read-only-password",
+            "--open-password",
+            "secret",
+        ])
+        .unwrap();
+        let Command::Encrypt(args) = cli.command else {
+            panic!("expected encrypt command");
+        };
+        let options = encrypt_options_from_args(&args).unwrap();
+
+        assert_eq!(options.user_password, "secret");
+        assert_eq!(options.owner_password, "secret");
+        assert_eq!(options.permissions, Permissions::all());
+    }
+
+    #[test]
+    fn owner_password_overrides_default_owner_password() {
+        let cli = Cli::try_parse_from([
+            "pdf-encrypt",
+            "encrypt",
+            "--input",
+            "input.pdf",
+            "--open-password",
             "viewer",
             "--owner-password",
             "owner",
@@ -336,40 +365,98 @@ mod tests {
 
         assert_eq!(options.user_password, "viewer");
         assert_eq!(options.owner_password, "owner");
-        assert_eq!(options.permissions, pdf_encrypt::read_only_permissions());
     }
 
     #[test]
-    fn read_only_password_requires_owner_password() {
-        let result = Cli::try_parse_from([
-            "pdf-encrypt",
-            "encrypt",
-            "--input",
-            "input.pdf",
-            "--read-only-password",
-            "viewer",
-        ]);
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn read_only_password_must_differ_from_owner_password() {
+    fn owner_password_without_open_password_leaves_output_open_password_empty() {
         let cli = Cli::try_parse_from([
             "pdf-encrypt",
             "encrypt",
             "--input",
             "input.pdf",
-            "--read-only-password",
-            "same",
             "--owner-password",
-            "same",
+            "owner",
+        ])
+        .unwrap();
+        let Command::Encrypt(args) = cli.command else {
+            panic!("expected encrypt command");
+        };
+        let options = encrypt_options_from_args(&args).unwrap();
+
+        assert_eq!(options.user_password, "");
+        assert_eq!(options.owner_password, "owner");
+    }
+
+    #[test]
+    fn input_open_password_sets_password_for_encrypted_input() {
+        let cli = Cli::try_parse_from([
+            "pdf-encrypt",
+            "encrypt",
+            "--input",
+            "input.pdf",
+            "--input-open-password",
+            "old-secret",
+            "--open-password",
+            "new-secret",
+        ])
+        .unwrap();
+        let Command::Encrypt(args) = cli.command else {
+            panic!("expected encrypt command");
+        };
+        let options = encrypt_options_from_args(&args).unwrap();
+
+        assert_eq!(options.input_open_password.as_deref(), Some("old-secret"));
+        assert_eq!(options.user_password, "new-secret");
+    }
+
+    #[test]
+    fn read_only_denies_modify_from_all_permissions() {
+        let cli = Cli::try_parse_from([
+            "pdf-encrypt",
+            "encrypt",
+            "--input",
+            "input.pdf",
+            "--open-password",
+            "viewer",
+            "--read-only",
+        ])
+        .unwrap();
+        let Command::Encrypt(args) = cli.command else {
+            panic!("expected encrypt command");
+        };
+        let options = encrypt_options_from_args(&args).unwrap();
+
+        assert!(options.permissions.contains(Permissions::PRINTABLE));
+        assert!(options.permissions.contains(Permissions::COPYABLE));
+        assert!(options.permissions.contains(Permissions::ANNOTABLE));
+        assert!(options.permissions.contains(Permissions::FILLABLE));
+        assert!(options.permissions.contains(Permissions::ASSEMBLABLE));
+        assert!(!options.permissions.contains(Permissions::MODIFIABLE));
+    }
+
+    #[test]
+    fn read_only_accepts_dash_ro_alias() {
+        let cli = parse_cli_from([
+            "pdf-encrypt",
+            "encrypt",
+            "--input",
+            "input.pdf",
+            "--open-password",
+            "viewer",
+            "-ro",
         ])
         .unwrap();
         let Command::Encrypt(args) = cli.command else {
             panic!("expected encrypt command");
         };
 
-        assert!(encrypt_options_from_args(&args).is_err());
+        assert!(args.read_only);
+    }
+
+    #[test]
+    fn encrypt_requires_open_or_owner_password() {
+        let result = Cli::try_parse_from(["pdf-encrypt", "encrypt", "--input", "input.pdf"]);
+
+        assert!(result.is_err());
     }
 }

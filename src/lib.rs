@@ -19,16 +19,12 @@ const FILE_ID_LEN: usize = 16;
 const AES_256_KEY_LEN: usize = 32;
 const STANDARD_CRYPT_FILTER: &[u8] = b"StdCF";
 
-/// Default permissions for a read-only user password.
+/// Default permissions for read-only mode.
 ///
-/// This allows viewing, printing, copying, and accessibility extraction, but
-/// disallows edits, annotations, form filling, and document assembly. Callers
-/// can further tighten it by removing print/copy permissions if needed.
+/// This starts from all permissions and removes content modification. Callers
+/// can further tighten it by removing print/copy/annotation permissions if needed.
 pub fn read_only_permissions() -> Permissions {
-    Permissions::PRINTABLE
-        | Permissions::PRINTABLE_IN_HIGH_QUALITY
-        | Permissions::COPYABLE
-        | Permissions::COPYABLE_FOR_ACCESSIBILITY
+    Permissions::all() & !Permissions::MODIFIABLE
 }
 
 /// Supported PDF encryption algorithms.
@@ -86,6 +82,8 @@ impl PdfOperation {
 #[derive(Debug, Clone)]
 pub struct EncryptOptions {
     /// Password required to open the encrypted output as a regular user.
+    ///
+    /// This corresponds to the CLI's output `--open-password` option.
     pub user_password: String,
     /// Owner password that can override permissions in compatible PDF viewers.
     pub owner_password: String,
@@ -96,12 +94,12 @@ pub struct EncryptOptions {
     /// Whether XMP/document metadata streams should be encrypted.
     pub encrypt_metadata: bool,
     /// Optional password for opening an already-encrypted input before re-encrypting it.
-    pub open_password: Option<String>,
+    pub input_open_password: Option<String>,
 }
 
 impl EncryptOptions {
-    /// Create default encryption options with the same user and owner password.
-    pub fn with_user_password(password: impl Into<String>) -> Self {
+    /// Create default encryption options with the same output open and owner password.
+    pub fn with_open_password(password: impl Into<String>) -> Self {
         let password = password.into();
         Self {
             owner_password: password.clone(),
@@ -110,11 +108,16 @@ impl EncryptOptions {
         }
     }
 
-    /// Create encryption options for a read-only user password.
+    /// Create default encryption options with the same user and owner password.
+    pub fn with_user_password(password: impl Into<String>) -> Self {
+        Self::with_open_password(password)
+    }
+
+    /// Create encryption options for a read-only output open password.
     ///
-    /// The owner password should be kept private and must differ from the
-    /// read-only password if permission restrictions are expected to be
-    /// meaningful in PDF readers.
+    /// The owner password should be kept private and should differ from the
+    /// open password if permission restrictions are expected to be meaningful
+    /// in PDF readers.
     pub fn with_read_only_password(
         read_only_password: impl Into<String>,
         owner_password: impl Into<String>,
@@ -136,7 +139,7 @@ impl Default for EncryptOptions {
             algorithm: EncryptionAlgorithm::default(),
             permissions: Permissions::all(),
             encrypt_metadata: true,
-            open_password: None,
+            input_open_password: None,
         }
     }
 }
@@ -177,7 +180,7 @@ impl PdfCryptoReport {
     }
 }
 
-/// Encrypt a PDF using the default AES-256 options and the same owner/user password.
+/// Encrypt a PDF using the default AES-256 options and the same open/owner password.
 pub fn encrypt_pdf<I, O>(input_path: I, output_path: O, user_password: &str) -> Result<()>
 where
     I: AsRef<Path>,
@@ -200,12 +203,12 @@ where
     let input_path = input_path.as_ref();
     let output_path = output_path.as_ref();
     let input_size = file_size(input_path, "input")?;
-    let mut doc = load_document_for_encryption(input_path, options.open_password.as_deref())?;
+    let mut doc = load_document_for_encryption(input_path, options.input_open_password.as_deref())?;
     let input_encrypted = doc.was_encrypted();
 
     if doc.is_encrypted() {
         bail!(
-            "Input PDF is encrypted; decrypt it first or provide --open-password: {}",
+            "Input PDF is encrypted; decrypt it first or provide --input-open-password: {}",
             input_path.display()
         );
     }
@@ -445,14 +448,14 @@ mod tests {
     }
 
     #[test]
-    fn read_only_permissions_disallow_editing() {
+    fn read_only_permissions_allow_all_except_modify() {
         let permissions = read_only_permissions();
 
         assert!(permissions.contains(Permissions::PRINTABLE));
         assert!(permissions.contains(Permissions::COPYABLE));
+        assert!(permissions.contains(Permissions::ANNOTABLE));
+        assert!(permissions.contains(Permissions::FILLABLE));
+        assert!(permissions.contains(Permissions::ASSEMBLABLE));
         assert!(!permissions.contains(Permissions::MODIFIABLE));
-        assert!(!permissions.contains(Permissions::ANNOTABLE));
-        assert!(!permissions.contains(Permissions::FILLABLE));
-        assert!(!permissions.contains(Permissions::ASSEMBLABLE));
     }
 }

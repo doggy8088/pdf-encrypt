@@ -6,9 +6,10 @@
 
 - 加密 PDF，預設使用 `aes-256`。
 - 解密已加密 PDF，輸出不含 `/Encrypt` dictionary 的一般 PDF。
-- 支援使用者密碼、擁有者密碼與 read-only password。
+- 支援開啟文件密碼 (`--open-password`) 與擁有者密碼 (`--owner-password`)。
 - 可設定 PDF viewer 權限，例如列印、複製、修改、註解、填表等。
-- 可用 `--open-password` 先開啟已加密輸入檔，再重新加密成新密碼或新演算法。
+- 可用 `--input-open-password` 先開啟已加密輸入檔，再重新加密成新密碼或新演算法。
+- 可用 `-ro` / `--read-only` 將開啟文件後的權限設定為 allow all 並 deny modify。
 
 > 注意：PDF 權限是 PDF reader 應遵守的限制，不等同於無法被破解的存取控制。真正保護內容機密性的是加密密碼本身。
 
@@ -70,7 +71,7 @@ cargo uninstall pdf-encrypt
 ### 加密
 
 ```bash
-pdf-encrypt encrypt --input original.pdf --output encrypted.pdf --user-password secret
+pdf-encrypt encrypt --input original.pdf --output encrypted.pdf --open-password secret
 ```
 
 未指定 `--output` 時，會自動在原檔名後加上 `_encrypted`：
@@ -80,17 +81,38 @@ pdf-encrypt encrypt -i report.pdf -p secret
 # 輸出 report_encrypted.pdf
 ```
 
-建立 read-only password：
+`--open-password` 是加密後「開啟文件」所需的密碼。未指定 `--owner-password` 時，擁有者密碼會自動使用相同密碼；若只指定 `--owner-password` 而沒有指定 `--open-password`，則輸出 PDF 不需要開啟密碼。若要保留一組不同的完整管理權限密碼，可另外指定：
+
+```bash
+pdf-encrypt encrypt \
+  -i report.pdf \
+  -o report_locked.pdf \
+  --open-password viewer-secret \
+  --owner-password owner-secret
+```
+
+建立 read-only 權限且不要求開啟密碼：
 
 ```bash
 pdf-encrypt encrypt \
   -i report.pdf \
   -o report_readonly.pdf \
-  --read-only-password viewer-secret \
-  --owner-password owner-secret
+  --owner-password owner-secret \
+  --read-only
 ```
 
-`--read-only-password` 會建立受限的 user password，預設禁止修改內容、註解、填寫表單與重組頁面；`--owner-password` 則是保留完整管理權限的密碼，必須與 read-only password 不同。若想更接近只能觀看、不能列印/複製，可再加上：
+若也要讓文件開啟時需要密碼，可同時指定 `--open-password`：
+
+```bash
+pdf-encrypt encrypt \
+  -i report.pdf \
+  -o report_readonly.pdf \
+  --open-password viewer-secret \
+  --owner-password owner-secret \
+  --read-only
+```
+
+`--read-only` 也可寫成 `-ro`，其權限語意等同於 `--allow all --deny modify`。若想更接近只能觀看、不能列印/複製，可再加上：
 
 ```bash
 --deny print --deny high-quality-print --deny copy
@@ -113,13 +135,13 @@ pdf-encrypt encrypt -i report.pdf -o report_locked.pdf -p secret --algorithm aes
 
 ### 權限
 
-未指定 `--allow` 時，`--user-password` 預設允許全部權限，`--read-only-password` 預設使用 read-only 權限。若指定 `--allow`，則只允許列出的權限；也可以再用 `--deny` 從目前允許權限中移除。
+未指定 `--allow` 時，預設允許全部權限；加入 `--read-only` 時會從目前權限中移除 `modify`。若指定 `--allow`，則只允許列出的權限；也可以再用 `--deny` 從目前允許權限中移除。
 
 ```bash
 pdf-encrypt encrypt \
   -i report.pdf \
   -o report_readonly.pdf \
-  -p secret \
+  --open-password secret \
   --allow print \
   --allow high-quality-print \
   --allow accessibility
@@ -145,8 +167,8 @@ pdf-encrypt encrypt \
 pdf-encrypt encrypt \
   -i old_locked.pdf \
   -o new_locked.pdf \
-  --open-password old-secret \
-  --user-password new-secret \
+  --input-open-password old-secret \
+  --open-password new-secret \
   --algorithm aes-256
 ```
 
@@ -168,12 +190,16 @@ pdf-encrypt decrypt -i report_encrypted.pdf -p secret
 ## Library API 範例
 
 ```rust
-use pdf_encrypt::{decrypt_pdf, encrypt_pdf, encrypt_pdf_with_options, EncryptOptions};
+use pdf_encrypt::{
+    decrypt_pdf, encrypt_pdf, encrypt_pdf_with_options, read_only_permissions, EncryptOptions,
+};
 
 fn main() -> anyhow::Result<()> {
     encrypt_pdf("input.pdf", "locked.pdf", "secret")?;
 
-    let options = EncryptOptions::with_read_only_password("viewer-secret", "owner-secret");
+    let mut options = EncryptOptions::with_open_password("viewer-secret");
+    options.owner_password = "owner-secret".to_string();
+    options.permissions = read_only_permissions();
     encrypt_pdf_with_options("input.pdf", "readonly.pdf", &options)?;
 
     decrypt_pdf("locked.pdf", "plain.pdf", "secret")?;
