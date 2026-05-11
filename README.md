@@ -10,6 +10,7 @@
 - 可設定 PDF viewer 權限，例如列印、複製、修改、註解、填表等。
 - 可用 `--input-open-password` 先開啟已加密輸入檔，再重新加密成新密碼或新演算法。
 - 可用 `-ro` / `--read-only` 將開啟文件後的權限設定為 allow all 並 deny modify。
+- 加密前可用 `--doc-*` 參數更新 PDF Document Info / XMP metadata。
 
 > 注意：PDF 權限是 PDF reader 應遵守的限制，不等同於無法被破解的存取控制。真正保護內容機密性的是加密密碼本身。
 
@@ -118,6 +119,36 @@ pdf-encrypt encrypt \
 --deny print --deny high-quality-print --deny copy
 ```
 
+加密前更新文件資訊：
+
+```bash
+pdf-encrypt encrypt \
+  -i report.pdf \
+  -o report_locked.pdf \
+  --open-password secret \
+  --doc-title "規格驅動開發實戰" \
+  --doc-author "Will 保哥" \
+  --doc-subject "AI 時代的軟體開發新典範" \
+  --doc-keywords "AI, SDD, Rust" \
+  --doc-description "課程講義" \
+  --doc-copyright-status "Copyrighted" \
+  --doc-copyright-notice "Copyright © Will 保哥" \
+  --doc-copyright-info-url "https://example.com/copyright"
+```
+
+可用的文件資訊參數：
+
+| 參數 | 寫入資訊 |
+| --- | --- |
+| `--doc-title` | Document Title / XMP `dc:title` |
+| `--doc-author` | Author / XMP `dc:creator` |
+| `--doc-subject` | Subject / XMP 自訂 subject 欄位 |
+| `--doc-keywords` | Keywords / XMP `pdf:Keywords` 與 `dc:subject` |
+| `--doc-description` | Description / XMP `dc:description` |
+| `--doc-copyright-status` | Copyright status；常見值可用 `Copyrighted` 或 `Public Domain` |
+| `--doc-copyright-notice` | Copyright Notice / XMP `dc:rights` |
+| `--doc-copyright-info-url` | Copyright info URL / XMP `xmpRights:WebStatement` |
+
 指定演算法：
 
 ```bash
@@ -200,6 +231,8 @@ fn main() -> anyhow::Result<()> {
     let mut options = EncryptOptions::with_open_password("viewer-secret");
     options.owner_password = "owner-secret".to_string();
     options.permissions = read_only_permissions();
+    options.document_info.title = Some("規格驅動開發實戰".to_string());
+    options.document_info.author = Some("Will 保哥".to_string());
     encrypt_pdf_with_options("input.pdf", "readonly.pdf", &options)?;
 
     decrypt_pdf("locked.pdf", "plain.pdf", "secret")?;

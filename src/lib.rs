@@ -13,7 +13,10 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 use lopdf::encryption::crypt_filters::{Aes128CryptFilter, Aes256CryptFilter, CryptFilter};
-use lopdf::{Document, EncryptionState, EncryptionVersion, Object, Permissions, StringFormat};
+use lopdf::{
+    text_string, Dictionary, Document, EncryptionState, EncryptionVersion, Object, ObjectId,
+    Permissions, Stream, StringFormat,
+};
 
 const FILE_ID_LEN: usize = 16;
 const AES_256_KEY_LEN: usize = 32;
@@ -78,6 +81,41 @@ impl PdfOperation {
     }
 }
 
+/// Document information that can be written before encrypting a PDF.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DocumentInfo {
+    /// Document title.
+    pub title: Option<String>,
+    /// Document author.
+    pub author: Option<String>,
+    /// Document subject.
+    pub subject: Option<String>,
+    /// Document keywords.
+    pub keywords: Option<String>,
+    /// Document description stored in XMP and as a custom Info field.
+    pub description: Option<String>,
+    /// Copyright status stored in XMP and as a custom Info field.
+    pub copyright_status: Option<String>,
+    /// Copyright notice stored in XMP and as a custom Info field.
+    pub copyright_notice: Option<String>,
+    /// Copyright information URL stored in XMP and as a custom Info field.
+    pub copyright_info_url: Option<String>,
+}
+
+impl DocumentInfo {
+    /// Returns true when no document information fields were provided.
+    pub fn is_empty(&self) -> bool {
+        self.title.is_none()
+            && self.author.is_none()
+            && self.subject.is_none()
+            && self.keywords.is_none()
+            && self.description.is_none()
+            && self.copyright_status.is_none()
+            && self.copyright_notice.is_none()
+            && self.copyright_info_url.is_none()
+    }
+}
+
 /// Encryption settings used by [`encrypt_pdf_with_options`].
 #[derive(Debug, Clone)]
 pub struct EncryptOptions {
@@ -95,6 +133,8 @@ pub struct EncryptOptions {
     pub encrypt_metadata: bool,
     /// Optional password for opening an already-encrypted input before re-encrypting it.
     pub input_open_password: Option<String>,
+    /// Optional document information to write before encrypting the output.
+    pub document_info: DocumentInfo,
 }
 
 impl EncryptOptions {
@@ -140,6 +180,7 @@ impl Default for EncryptOptions {
             permissions: Permissions::all(),
             encrypt_metadata: true,
             input_open_password: None,
+            document_info: DocumentInfo::default(),
         }
     }
 }
@@ -213,6 +254,7 @@ where
         );
     }
 
+    apply_document_info(&mut doc, &options.document_info)?;
     ensure_file_identifier(&mut doc)?;
     ensure_minimum_pdf_version(&mut doc, options.algorithm.minimum_pdf_version());
 
@@ -298,6 +340,203 @@ fn load_document_for_encryption(input_path: &Path, password: Option<&str>) -> Re
         None => Document::load(input_path),
     }
     .with_context(|| format!("Failed to open PDF file: {}", input_path.display()))
+}
+
+fn apply_document_info(doc: &mut Document, info: &DocumentInfo) -> Result<()> {
+    if info.is_empty() {
+        return Ok(());
+    }
+
+    update_info_dictionary(doc, info)?;
+    update_xmp_metadata(doc, info)?;
+    Ok(())
+}
+
+fn update_info_dictionary(doc: &mut Document, info: &DocumentInfo) -> Result<()> {
+    let info_id = ensure_info_dictionary_id(doc);
+    let info_dict = doc
+        .get_dictionary_mut(info_id)
+        .context("Failed to access PDF Info dictionary")?;
+
+    set_info_text(info_dict, b"Title", &info.title);
+    set_info_text(info_dict, b"Author", &info.author);
+    set_info_text(info_dict, b"Subject", &info.subject);
+    set_info_text(info_dict, b"Keywords", &info.keywords);
+    set_info_text(info_dict, b"Description", &info.description);
+    set_info_text(info_dict, b"CopyrightStatus", &info.copyright_status);
+    set_info_text(info_dict, b"CopyrightNotice", &info.copyright_notice);
+    set_info_text(info_dict, b"CopyrightInfoURL", &info.copyright_info_url);
+    Ok(())
+}
+
+fn ensure_info_dictionary_id(doc: &mut Document) -> ObjectId {
+    let existing_info = doc.trailer.get(b"Info").cloned().ok();
+
+    match existing_info {
+        Some(Object::Reference(id)) if doc.get_dictionary(id).is_ok() => id,
+        Some(Object::Dictionary(dict)) => {
+            let id = doc.add_object(dict);
+            doc.trailer.set("Info", id);
+            id
+        }
+        _ => {
+            let id = doc.add_object(Dictionary::new());
+            doc.trailer.set("Info", id);
+            id
+        }
+    }
+}
+
+fn set_info_text(info_dict: &mut Dictionary, key: &[u8], value: &Option<String>) {
+    if let Some(value) = value {
+        info_dict.set(key, text_string(value));
+    }
+}
+
+fn update_xmp_metadata(doc: &mut Document, info: &DocumentInfo) -> Result<()> {
+    let catalog_id = doc
+        .trailer
+        .get(b"Root")
+        .and_then(Object::as_reference)
+        .context("PDF trailer does not reference a catalog")?;
+
+    let mut metadata_dict = Dictionary::new();
+    metadata_dict.set("Type", "Metadata");
+    metadata_dict.set("Subtype", "XML");
+    let metadata_id = doc.add_object(Stream::new(
+        metadata_dict,
+        build_xmp_metadata(info).into_bytes(),
+    ));
+
+    let catalog = doc
+        .get_dictionary_mut(catalog_id)
+        .context("Failed to access PDF catalog")?;
+    catalog.set("Metadata", metadata_id);
+    Ok(())
+}
+
+fn build_xmp_metadata(info: &DocumentInfo) -> String {
+    let mut fields = String::new();
+
+    if let Some(value) = &info.title {
+        push_xmp_alt_text(&mut fields, "dc:title", value);
+    }
+    if let Some(value) = &info.author {
+        push_xmp_sequence(&mut fields, "dc:creator", value);
+    }
+    if let Some(value) = &info.subject {
+        push_xmp_simple(&mut fields, "pdfencrypt:Subject", value);
+    }
+    if let Some(value) = &info.keywords {
+        push_xmp_simple(&mut fields, "pdf:Keywords", value);
+        push_xmp_keywords(&mut fields, value);
+    }
+    if let Some(value) = &info.description {
+        push_xmp_alt_text(&mut fields, "dc:description", value);
+    }
+    if let Some(value) = &info.copyright_status {
+        if let Some(marked) = copyright_status_to_xmp_marked(value) {
+            push_xmp_simple(&mut fields, "xmpRights:Marked", marked);
+        }
+        push_xmp_simple(&mut fields, "pdfencrypt:CopyrightStatus", value);
+    }
+    if let Some(value) = &info.copyright_notice {
+        push_xmp_alt_text(&mut fields, "dc:rights", value);
+    }
+    if let Some(value) = &info.copyright_info_url {
+        push_xmp_simple(&mut fields, "xmpRights:WebStatement", value);
+    }
+
+    format!(
+        r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+        xmlns:dc="http://purl.org/dc/elements/1.1/"
+        xmlns:pdf="http://ns.adobe.com/pdf/1.3/"
+        xmlns:xmpRights="http://ns.adobe.com/xap/1.0/rights/"
+        xmlns:pdfencrypt="https://github.com/doggy8088/pdf-encrypt/ns/1.0/">
+{fields}    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>
+"#
+    )
+}
+
+fn push_xmp_simple(fields: &mut String, tag: &str, value: &str) {
+    fields.push_str("      <");
+    fields.push_str(tag);
+    fields.push('>');
+    fields.push_str(&escape_xml(value));
+    fields.push_str("</");
+    fields.push_str(tag);
+    fields.push_str(">\n");
+}
+
+fn push_xmp_alt_text(fields: &mut String, tag: &str, value: &str) {
+    fields.push_str("      <");
+    fields.push_str(tag);
+    fields.push_str("><rdf:Alt><rdf:li xml:lang=\"x-default\">");
+    fields.push_str(&escape_xml(value));
+    fields.push_str("</rdf:li></rdf:Alt></");
+    fields.push_str(tag);
+    fields.push_str(">\n");
+}
+
+fn push_xmp_sequence(fields: &mut String, tag: &str, value: &str) {
+    fields.push_str("      <");
+    fields.push_str(tag);
+    fields.push_str("><rdf:Seq><rdf:li>");
+    fields.push_str(&escape_xml(value));
+    fields.push_str("</rdf:li></rdf:Seq></");
+    fields.push_str(tag);
+    fields.push_str(">\n");
+}
+
+fn push_xmp_keywords(fields: &mut String, keywords: &str) {
+    let items: Vec<_> = keywords
+        .split([',', ';'])
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .collect();
+
+    if items.is_empty() {
+        return;
+    }
+
+    fields.push_str("      <dc:subject><rdf:Bag>");
+    for item in items {
+        fields.push_str("<rdf:li>");
+        fields.push_str(&escape_xml(item));
+        fields.push_str("</rdf:li>");
+    }
+    fields.push_str("</rdf:Bag></dc:subject>\n");
+}
+
+fn copyright_status_to_xmp_marked(status: &str) -> Option<&'static str> {
+    match status.trim().to_ascii_lowercase().as_str() {
+        "copyrighted" | "copyright" | "true" | "yes" | "marked" | "1" => Some("True"),
+        "public-domain" | "public domain" | "publicdomain" | "false" | "no" | "unmarked" | "0" => {
+            Some("False")
+        }
+        _ => None,
+    }
+}
+
+fn escape_xml(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&apos;"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
 }
 
 fn encryption_state_for(

@@ -3,8 +3,8 @@
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use lopdf::Permissions;
 use pdf_encrypt::{
-    decrypt_pdf_with_options, encrypt_pdf_with_options, DecryptOptions, EncryptOptions,
-    EncryptionAlgorithm, PdfCryptoReport,
+    decrypt_pdf_with_options, encrypt_pdf_with_options, DecryptOptions, DocumentInfo,
+    EncryptOptions, EncryptionAlgorithm, PdfCryptoReport,
 };
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -27,7 +27,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     /// 將 PDF 加密並寫出新檔案
-    Encrypt(EncryptArgs),
+    Encrypt(Box<EncryptArgs>),
     /// 將已加密 PDF 解密並寫出新檔案
     Decrypt(DecryptArgs),
 }
@@ -61,7 +61,7 @@ struct EncryptArgs {
     input_open_password: Option<String>,
 
     /// 將開啟文件後的權限設為 allow all 並 deny modify；也可使用 -ro
-    #[arg(long = "read-only", visible_alias = "ro")]
+    #[arg(long = "read-only")]
     read_only: bool,
 
     /// 加密演算法
@@ -75,6 +75,38 @@ struct EncryptArgs {
     /// 從目前允許權限中移除指定權限；可重複
     #[arg(long = "deny", value_enum, value_name = "PERMISSION")]
     deny: Vec<CliPermission>,
+
+    /// 文件標題；加密前寫入 Document Info / XMP metadata
+    #[arg(long = "doc-title", value_name = "TEXT")]
+    doc_title: Option<String>,
+
+    /// 文件作者；加密前寫入 Document Info / XMP metadata
+    #[arg(long = "doc-author", value_name = "TEXT")]
+    doc_author: Option<String>,
+
+    /// 文件主旨；加密前寫入 Document Info / XMP metadata
+    #[arg(long = "doc-subject", value_name = "TEXT")]
+    doc_subject: Option<String>,
+
+    /// 文件關鍵字；加密前寫入 Document Info / XMP metadata
+    #[arg(long = "doc-keywords", value_name = "TEXT")]
+    doc_keywords: Option<String>,
+
+    /// 文件描述；加密前寫入 Document Info / XMP metadata
+    #[arg(long = "doc-description", value_name = "TEXT")]
+    doc_description: Option<String>,
+
+    /// 文件著作權狀態；加密前寫入 Document Info / XMP metadata
+    #[arg(long = "doc-copyright-status", value_name = "TEXT")]
+    doc_copyright_status: Option<String>,
+
+    /// 文件著作權聲明；加密前寫入 Document Info / XMP metadata
+    #[arg(long = "doc-copyright-notice", value_name = "TEXT")]
+    doc_copyright_notice: Option<String>,
+
+    /// 文件著作權資訊 URL；加密前寫入 Document Info / XMP metadata
+    #[arg(long = "doc-copyright-info-url", value_name = "URL")]
+    doc_copyright_info_url: Option<String>,
 
     /// 不加密 PDF metadata stream
     #[arg(long = "no-encrypt-metadata")]
@@ -228,11 +260,25 @@ fn encrypt_options_from_args(args: &EncryptArgs) -> anyhow::Result<EncryptOption
     let mut options = EncryptOptions::with_open_password(open_password);
     options.owner_password = owner_password;
     options.input_open_password = args.input_open_password.clone();
+    options.document_info = document_info_from_args(args);
     options.algorithm = args.algorithm.into();
     options.permissions =
         permissions_from_args(&args.allow, &args.deny, options.permissions, args.read_only);
     options.encrypt_metadata = !args.no_encrypt_metadata;
     Ok(options)
+}
+
+fn document_info_from_args(args: &EncryptArgs) -> DocumentInfo {
+    DocumentInfo {
+        title: args.doc_title.clone(),
+        author: args.doc_author.clone(),
+        subject: args.doc_subject.clone(),
+        keywords: args.doc_keywords.clone(),
+        description: args.doc_description.clone(),
+        copyright_status: args.doc_copyright_status.clone(),
+        copyright_notice: args.doc_copyright_notice.clone(),
+        copyright_info_url: args.doc_copyright_info_url.clone(),
+    }
 }
 
 fn permissions_from_args(
@@ -407,6 +453,69 @@ mod tests {
 
         assert_eq!(options.input_open_password.as_deref(), Some("old-secret"));
         assert_eq!(options.user_password, "new-secret");
+    }
+
+    #[test]
+    fn document_info_args_populate_encrypt_options() {
+        let cli = Cli::try_parse_from([
+            "pdf-encrypt",
+            "encrypt",
+            "--input",
+            "input.pdf",
+            "--open-password",
+            "secret",
+            "--doc-title",
+            "規格驅動開發實戰",
+            "--doc-author",
+            "Will 保哥",
+            "--doc-subject",
+            "AI 時代的軟體開發新典範",
+            "--doc-keywords",
+            "AI, SDD, Rust",
+            "--doc-description",
+            "課程講義",
+            "--doc-copyright-status",
+            "Copyrighted",
+            "--doc-copyright-notice",
+            "Copyright © Will 保哥",
+            "--doc-copyright-info-url",
+            "https://example.com/copyright",
+        ])
+        .unwrap();
+        let Command::Encrypt(args) = cli.command else {
+            panic!("expected encrypt command");
+        };
+        let options = encrypt_options_from_args(&args).unwrap();
+
+        assert_eq!(
+            options.document_info.title.as_deref(),
+            Some("規格驅動開發實戰")
+        );
+        assert_eq!(options.document_info.author.as_deref(), Some("Will 保哥"));
+        assert_eq!(
+            options.document_info.subject.as_deref(),
+            Some("AI 時代的軟體開發新典範")
+        );
+        assert_eq!(
+            options.document_info.keywords.as_deref(),
+            Some("AI, SDD, Rust")
+        );
+        assert_eq!(
+            options.document_info.description.as_deref(),
+            Some("課程講義")
+        );
+        assert_eq!(
+            options.document_info.copyright_status.as_deref(),
+            Some("Copyrighted")
+        );
+        assert_eq!(
+            options.document_info.copyright_notice.as_deref(),
+            Some("Copyright © Will 保哥")
+        );
+        assert_eq!(
+            options.document_info.copyright_info_url.as_deref(),
+            Some("https://example.com/copyright")
+        );
     }
 
     #[test]

@@ -6,10 +6,10 @@
 use std::fs;
 use std::path::Path;
 
-use lopdf::{dictionary, Document, Object, Permissions, Stream};
+use lopdf::{decode_text_string, dictionary, Document, Object, Permissions, Stream};
 use pdf_encrypt::{
     decrypt_pdf, decrypt_pdf_with_options, encrypt_pdf, encrypt_pdf_with_options, DecryptOptions,
-    EncryptOptions, EncryptionAlgorithm, PdfOperation,
+    DocumentInfo, EncryptOptions, EncryptionAlgorithm, PdfOperation,
 };
 
 fn make_simple_pdf(path: &Path) {
@@ -58,6 +58,19 @@ fn make_simple_pdf(path: &Path) {
     });
     doc.trailer.set("Root", catalog_id);
     doc.save(path).expect("test PDF saves");
+}
+
+fn document_info_text(doc: &Document, key: &[u8]) -> String {
+    let info_id = doc
+        .trailer
+        .get(b"Info")
+        .and_then(Object::as_reference)
+        .expect("PDF should have Info dictionary");
+    let info_dict = doc
+        .get_dictionary(info_id)
+        .expect("Info object should be a dictionary");
+    decode_text_string(info_dict.get(key).expect("Info field should exist"))
+        .expect("Info field should decode as text")
 }
 
 #[test]
@@ -195,6 +208,73 @@ fn read_only_password_allows_all_except_modify() {
     let opened_with_owner = Document::load_with_password(&output_path, "owner")
         .expect("owner password should open PDF");
     assert_eq!(opened_with_owner.get_pages().len(), 1);
+}
+
+#[test]
+fn encrypts_after_updating_document_info() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let input_path = dir.path().join("plain.pdf");
+    let output_path = dir.path().join("metadata.pdf");
+    make_simple_pdf(&input_path);
+
+    let mut options = EncryptOptions::with_open_password("secret");
+    options.document_info = DocumentInfo {
+        title: Some("規格驅動開發實戰".to_string()),
+        author: Some("Will 保哥".to_string()),
+        subject: Some("AI 時代的軟體開發新典範".to_string()),
+        keywords: Some("AI, SDD, Rust".to_string()),
+        description: Some("課程講義".to_string()),
+        copyright_status: Some("Copyrighted".to_string()),
+        copyright_notice: Some("Copyright © Will 保哥".to_string()),
+        copyright_info_url: Some("https://example.com/copyright".to_string()),
+    };
+
+    encrypt_pdf_with_options(&input_path, &output_path, &options)
+        .expect("metadata encryption should succeed");
+
+    let unlocked = Document::load_with_password(&output_path, "secret")
+        .expect("encrypted PDF should open with password");
+    assert_eq!(document_info_text(&unlocked, b"Title"), "規格驅動開發實戰");
+    assert_eq!(document_info_text(&unlocked, b"Author"), "Will 保哥");
+    assert_eq!(
+        document_info_text(&unlocked, b"Subject"),
+        "AI 時代的軟體開發新典範"
+    );
+    assert_eq!(document_info_text(&unlocked, b"Keywords"), "AI, SDD, Rust");
+    assert_eq!(document_info_text(&unlocked, b"Description"), "課程講義");
+    assert_eq!(
+        document_info_text(&unlocked, b"CopyrightStatus"),
+        "Copyrighted"
+    );
+    assert_eq!(
+        document_info_text(&unlocked, b"CopyrightNotice"),
+        "Copyright © Will 保哥"
+    );
+    assert_eq!(
+        document_info_text(&unlocked, b"CopyrightInfoURL"),
+        "https://example.com/copyright"
+    );
+
+    let catalog_id = unlocked
+        .trailer
+        .get(b"Root")
+        .and_then(Object::as_reference)
+        .expect("PDF should have catalog");
+    let metadata_id = unlocked
+        .get_dictionary(catalog_id)
+        .expect("catalog should be a dictionary")
+        .get(b"Metadata")
+        .and_then(Object::as_reference)
+        .expect("catalog should reference XMP metadata");
+    let metadata_stream = unlocked
+        .get_object(metadata_id)
+        .and_then(Object::as_stream)
+        .expect("metadata should be a stream");
+    let xmp = String::from_utf8_lossy(&metadata_stream.content);
+    assert!(xmp.contains("<dc:title>"));
+    assert!(xmp.contains("規格驅動開發實戰"));
+    assert!(xmp.contains("<xmpRights:Marked>True</xmpRights:Marked>"));
+    assert!(xmp.contains("https://example.com/copyright"));
 }
 
 #[test]
