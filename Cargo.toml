@@ -1,6 +1,6 @@
 [package]
 name = "pdf-encrypt"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Will 保哥 <doggy.huang@gmail.com>"]
 description = "A Rust command line utility that encrypts and decrypts PDF documents."

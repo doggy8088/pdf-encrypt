@@ -9,7 +9,7 @@
 - 支援開啟文件密碼 (`--open-password`) 與擁有者密碼 (`--owner-password`)。
 - 可設定 PDF viewer 權限，例如列印、複製、修改、註解、填表等。
 - 可用 `--input-open-password` 先開啟已加密輸入檔，再重新加密成新密碼或新演算法。
-- 可用 `-ro` / `--read-only` 將開啟文件後的權限設定為 allow all 並 deny modify。
+- 可用 `-ro` / `--read-only` 將開啟文件後的權限設定為 allow all 並 deny modify 與 assemble。
 - 加密前可用 `--doc-*` 參數更新 PDF Document Info / XMP metadata。
 - 可用 `--in-place` 直接加密並覆蓋原輸入檔案，並可用 `--force` 略過覆蓋確認。
 
@@ -135,7 +135,7 @@ pdf-encrypt encrypt \
   --read-only
 ```
 
-`--read-only` 也可寫成 `-ro`，其權限語意等同於 `--allow all --deny modify`。若想更接近只能觀看、不能列印/複製，可再加上：
+`--read-only` 也可寫成 `-ro`，其權限語意等同於 `--allow all --deny modify --deny assemble`。若想更接近只能觀看、不能列印/複製，可再加上：
 
 ```bash
 --deny print --deny high-quality-print --deny copy
@@ -188,7 +188,7 @@ pdf-encrypt encrypt -i report.pdf -o report_locked.pdf -p secret --algorithm aes
 
 ### 權限
 
-未指定 `--allow` 時，預設允許全部權限；加入 `--read-only` 時會從目前權限中移除 `modify`。若指定 `--allow`，則只允許列出的權限；也可以再用 `--deny` 從目前允許權限中移除。
+未指定 `--allow` 時，預設允許全部權限；加入 `--read-only` 時會從目前權限中移除 `modify` 與 `assemble`。若指定 `--allow`，則只允許列出的權限；也可以再用 `--deny` 從目前允許權限中移除。
 
 ```bash
 pdf-encrypt encrypt \

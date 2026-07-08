@@ -72,7 +72,7 @@ struct EncryptArgs {
     #[arg(long, value_name = "PASSWORD")]
     input_open_password: Option<String>,
 
-    /// 將開啟文件後的權限設為 allow all 並 deny modify；也可使用 -ro
+    /// 將開啟文件後的權限設為 allow all 並 deny modify 與 assemble；也可使用 -ro
     #[arg(long = "read-only")]
     read_only: bool,
 
@@ -382,6 +382,7 @@ fn permissions_from_args(
 
     if read_only {
         permissions &= !Permissions::MODIFIABLE;
+        permissions &= !Permissions::ASSEMBLABLE;
     }
 
     for item in deny {
@@ -697,7 +698,7 @@ mod tests {
     }
 
     #[test]
-    fn read_only_denies_modify_from_all_permissions() {
+    fn read_only_denies_modify_and_assemble_from_all_permissions() {
         let cli = Cli::try_parse_from([
             "pdf-encrypt",
             "encrypt",
@@ -717,7 +718,7 @@ mod tests {
         assert!(options.permissions.contains(Permissions::COPYABLE));
         assert!(options.permissions.contains(Permissions::ANNOTABLE));
         assert!(options.permissions.contains(Permissions::FILLABLE));
-        assert!(options.permissions.contains(Permissions::ASSEMBLABLE));
+        assert!(!options.permissions.contains(Permissions::ASSEMBLABLE));
         assert!(!options.permissions.contains(Permissions::MODIFIABLE));
     }
 

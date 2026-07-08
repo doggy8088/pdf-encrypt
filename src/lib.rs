@@ -24,10 +24,11 @@ const STANDARD_CRYPT_FILTER: &[u8] = b"StdCF";
 
 /// Default permissions for read-only mode.
 ///
-/// This starts from all permissions and removes content modification. Callers
-/// can further tighten it by removing print/copy/annotation permissions if needed.
+/// This starts from all permissions and removes content modification and
+/// document assembly. Callers can further tighten it by removing
+/// print/copy/annotation permissions if needed.
 pub fn read_only_permissions() -> Permissions {
-    Permissions::all() & !Permissions::MODIFIABLE
+    Permissions::all() & !Permissions::MODIFIABLE & !Permissions::ASSEMBLABLE
 }
 
 /// Supported PDF encryption algorithms.
@@ -687,14 +688,14 @@ mod tests {
     }
 
     #[test]
-    fn read_only_permissions_allow_all_except_modify() {
+    fn read_only_permissions_allow_all_except_modify_and_assemble() {
         let permissions = read_only_permissions();
 
         assert!(permissions.contains(Permissions::PRINTABLE));
         assert!(permissions.contains(Permissions::COPYABLE));
         assert!(permissions.contains(Permissions::ANNOTABLE));
         assert!(permissions.contains(Permissions::FILLABLE));
-        assert!(permissions.contains(Permissions::ASSEMBLABLE));
+        assert!(!permissions.contains(Permissions::ASSEMBLABLE));
         assert!(!permissions.contains(Permissions::MODIFIABLE));
     }
 }
