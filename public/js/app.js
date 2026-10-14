@@ -36,8 +36,8 @@ function showToast(message) {
 const themeToggle = document.getElementById("theme-toggle");
 function renderThemeToggle() {
   const dark = root.getAttribute("data-theme") === "dark";
-  themeToggle.textContent = dark ? "淺色" : "深色";
-  themeToggle.setAttribute("aria-label", dark ? "切換為淺色主題" : "切換為深色主題");
+  themeToggle.setAttribute("aria-pressed", String(dark));
+  themeToggle.title = dark ? "深色主題：開啟" : "深色主題：關閉";
 }
 themeToggle.addEventListener("click", () => {
   const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
@@ -356,6 +356,63 @@ for (const cards of document.querySelectorAll("[data-cards]")) {
       }
     });
   }
+}
+
+/* ---------- Phone nav toggle ---------- */
+
+const topbar = document.querySelector(".topbar");
+const navToggle = document.getElementById("nav-toggle");
+function setNavOpen(open) {
+  topbar.classList.toggle("is-open", open);
+  navToggle.setAttribute("aria-expanded", String(open));
+  navToggle.textContent = open ? "關閉" : "目錄";
+}
+navToggle.addEventListener("click", () => setNavOpen(!topbar.classList.contains("is-open")));
+document.querySelector(".nav-list").addEventListener("click", (event) => {
+  if (event.target.closest("a")) setNavOpen(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && topbar.classList.contains("is-open")) {
+    setNavOpen(false);
+    navToggle.focus();
+  }
+});
+
+/* ---------- Current section in the top bar ---------- */
+
+const navLinks = [...document.querySelectorAll(".nav-list a")];
+const navTargets = navLinks.map((link) => document.querySelector(link.getAttribute("href"))).filter(Boolean);
+
+function markCurrent(id) {
+  for (const link of navLinks) {
+    if (link.getAttribute("href") === `#${id}`) {
+      link.setAttribute("aria-current", "location");
+      // Keep the current item visible in the sideways-scrolling nav row on narrow screens.
+      const nav = link.closest(".site-nav");
+      if (nav.scrollWidth > nav.clientWidth) {
+        const offset = link.getBoundingClientRect().left - nav.getBoundingClientRect().left;
+        nav.scrollTo({ left: nav.scrollLeft + offset - 16, behavior: "smooth" });
+      }
+    } else {
+      link.removeAttribute("aria-current");
+    }
+  }
+}
+
+if ("IntersectionObserver" in window) {
+  const visible = new Set();
+  const sectionObserver = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) visible.add(entry.target);
+        else visible.delete(entry.target);
+      }
+      const current = navTargets.find((target) => visible.has(target));
+      markCurrent(current ? current.id : "");
+    },
+    { rootMargin: "-35% 0px -60% 0px" },
+  );
+  navTargets.forEach((target) => sectionObserver.observe(target));
 }
 
 /* ---------- Entrances ---------- */

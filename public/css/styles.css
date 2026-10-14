@@ -24,6 +24,8 @@
   --f-faq: #3b3834;
   --tile-light: #ecebe7;
   --tile-dark: #1d1c1a;
+  --sheet-front: #c9c4b9;
+  --sheet-back: #6f6a61;
 
   --font: "General Sans", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace; /* taste-skill-ignore: used only by <code>/<pre> */
@@ -53,13 +55,15 @@
   --night: #0c0b0a;
   --code-bg: #0c0b0a;
   --field-line: #6f6a61;
-  --f-install: #161513;
-  --f-builder: #1e1c1a;
-  --f-features: #25231f;
+  --f-install: #262420;
+  --f-builder: #1f1d1a;
+  --f-features: #2a2723;
   --f-reference: #2d2a26;
   --f-faq: #3b3834;
   --tile-light: #3b3834;
   --tile-dark: #0e0d0c;
+  --sheet-front: #3b3834;
+  --sheet-back: #2a2723;
   color-scheme: dark;
 }
 
@@ -72,6 +76,7 @@
 html {
   -webkit-text-size-adjust: 100%;
   scroll-behavior: smooth;
+  scroll-padding-top: 76px;
 }
 
 body {
@@ -288,31 +293,21 @@ a:hover {
 }
 
 .topbar {
-  position: relative;
-  z-index: 3;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
   align-items: center;
-  padding: 18px var(--margin);
-}
-
-.theme-toggle {
-  justify-self: start;
-  min-height: 44px;
-  padding: 8px 14px;
-  background: transparent;
+  gap: clamp(16px, 2.4vw, 40px);
+  min-height: 60px;
+  padding: 8px var(--margin);
+  background: var(--night);
   color: var(--on-night);
-  font-size: var(--step-small);
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
-}
-
-.theme-toggle:hover {
-  color: var(--seal);
 }
 
 .wordmark {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 10px;
   color: var(--on-night);
@@ -332,13 +327,118 @@ a:hover {
   color: var(--seal);
 }
 
+.site-nav {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.nav-list {
+  display: flex;
+  justify-content: center;
+  gap: clamp(14px, 2vw, 28px);
+}
+
+.nav-list a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: var(--on-night-muted);
+  font-size: var(--step-small);
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color var(--t-hover) ease;
+}
+
+.nav-list a::before {
+  content: "";
+  width: 0.5em;
+  height: 0.5em;
+  background: var(--seal);
+  opacity: 0;
+  transform: scale(0.96);
+  transition: opacity var(--t-ui) ease, transform var(--t-ui) var(--ease-out);
+}
+
+.nav-list a:hover,
+.nav-list a[aria-current="location"] {
+  color: var(--on-night);
+}
+
+.nav-list a[aria-current="location"]::before {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.topbar-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
 .topbar-link {
-  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding-inline: 8px;
   color: var(--on-night);
   font-size: var(--step-small);
 }
 
 .topbar-link:hover {
+  color: var(--seal);
+}
+
+.nav-toggle {
+  display: none;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 0;
+  background: var(--seal);
+  color: var(--on-seal);
+  font: 500 var(--step-small) / 1.2 var(--font);
+  cursor: pointer;
+  transition: transform var(--t-hover) var(--ease-out);
+}
+
+.nav-toggle:active {
+  transform: scale(0.97);
+}
+
+.theme-toggle {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: transparent;
+  color: var(--on-night);
+}
+
+.theme-toggle svg {
+  width: 20px;
+  height: 20px;
+}
+
+.theme-toggle .theme-off {
+  fill: var(--on-night-muted);
+  opacity: 0.45;
+}
+
+.theme-toggle .theme-on {
+  fill: currentColor;
+  transition: transform var(--t-ui) var(--ease-out);
+  transform-origin: 10px 10px;
+}
+
+.theme-toggle[aria-pressed="true"] .theme-on {
+  transform: translateX(8px);
+}
+
+.theme-toggle:hover {
   color: var(--seal);
 }
 
@@ -390,80 +490,52 @@ a:hover {
   margin-top: clamp(20px, 3vh, 32px);
 }
 
-.folders {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  padding-top: 40px;
-}
-
-.folder {
-  position: relative;
-  display: block;
-  width: 86%;
-  height: 60px;
-  margin-inline: auto;
-  margin-top: 40px;
-  color: var(--ink);
-  text-decoration: none;
-  transition: transform var(--t-ui) var(--ease-out);
-}
-
-.folder:first-child {
-  margin-top: 0;
-}
-
-.folder:hover,
-.folder:focus-visible {
-  transform: translateY(-8px);
-  color: var(--ink);
-}
-
-.folder-tab {
-  position: absolute;
-  bottom: 100%;
-  display: inline-flex;
-  align-items: center;
-  height: 40px;
-  padding: 0 30px;
-  background: inherit;
-  font-size: var(--step-body);
-  font-weight: 500;
-  white-space: nowrap;
-  clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 100%, 0 100%);
-}
-
-.folder-summary {
-  display: flex;
-  align-items: center;
-  height: 100%;
-  padding-inline: clamp(20px, 3vw, 40px);
-  font-size: var(--step-small);
-  color: inherit;
-}
-
-.folder-faq { background: var(--f-faq); color: var(--on-night); }
-.folder-faq:hover, .folder-faq:focus-visible { color: var(--on-night); }
-.folder-faq .folder-tab { left: 54%; }
-.folder-reference { background: var(--f-reference); }
-.folder-reference .folder-tab { left: 36%; }
-.folder-features { background: var(--f-features); }
-.folder-features .folder-tab { left: 20%; }
-.folder-builder { background: var(--f-builder); }
-.folder-builder .folder-tab { left: 70%; }
-
 .folder-front {
   position: relative;
   z-index: 2;
   width: 86%;
-  margin: 40px auto 0;
+  margin: 96px auto 0;
   background: var(--f-install);
   color: var(--ink);
 }
 
-.folder-tab-front {
+/* Two sheets behind the open folder: the stack it was pulled from. */
+.folder-front::before,
+.folder-front::after {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  height: 14px;
+}
+
+.folder-front::before {
+  left: 2%;
+  right: 2%;
+  background: var(--sheet-front);
+}
+
+.folder-front::after {
   left: 4%;
+  right: 4%;
+  bottom: calc(100% + 14px);
+  background: var(--sheet-back);
+}
+
+.folder-tab {
+  position: absolute;
+  z-index: 1;
+  right: 6%;
+  bottom: 100%;
+  display: inline-flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 32px;
   background: var(--f-install);
+  color: var(--ink);
+  font-size: var(--step-body);
+  font-weight: 700;
+  white-space: nowrap;
+  clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 100%, 0 100%);
 }
 
 .install-inner {
@@ -474,6 +546,7 @@ a:hover {
 }
 
 .install-head h2 {
+  width: fit-content;
   font-size: var(--step-head);
 }
 
@@ -517,8 +590,17 @@ a:hover {
 
 .snippet {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.snippet .code-block {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.snippet .copy-button {
+  justify-self: start;
 }
 
 .download-list {
@@ -557,7 +639,7 @@ a:hover {
 .stage-bar {
   display: flex;
   gap: 6px;
-  min-height: clamp(200px, 22vh, 280px);
+  min-height: 200px;
   margin: 0;
 }
 
@@ -686,7 +768,8 @@ a:hover {
 .terminals {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  width: min(100%, 640px);
+  width: min(88%, 540px);
+  transform: translate(clamp(16px, 6%, 56px), clamp(16px, 7%, 56px));
 }
 
 .terminal {
@@ -708,7 +791,8 @@ a:hover {
 .terminal pre {
   margin: 0;
   padding: clamp(18px, 2.4vw, 28px);
-  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-size: var(--step-small);
   line-height: 1.65;
 }
@@ -1019,7 +1103,11 @@ input:disabled {
 }
 
 :root[data-theme="dark"] .reference {
-  background: var(--f-reference);
+  --ink: #1d1c1a;
+  --muted: #55524b;
+  --seal-text: #a8101a;
+  background: #ecebe7;
+  color: var(--ink);
 }
 
 .reference-list {
@@ -1282,6 +1370,89 @@ input:disabled {
 
 /* ---------- Narrow screens ---------- */
 
+@media (max-width: 880px) {
+  html {
+    scroll-padding-top: 112px;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+    row-gap: 0;
+    padding-bottom: 0;
+  }
+
+  .topbar-actions {
+    margin-left: auto;
+  }
+
+  .site-nav {
+    order: 3;
+    flex-basis: 100%;
+    margin-inline: calc(-1 * var(--margin));
+    overflow-x: auto;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+  }
+
+  .site-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-list {
+    justify-content: flex-start;
+    width: max-content;
+    padding-inline: var(--margin);
+  }
+
+  .nav-list a {
+    scroll-snap-align: start;
+  }
+}
+
+/* Phone: the nav folds behind a 目錄 button so the sticky bar stays one row. */
+@media (max-width: 720px) {
+  html {
+    scroll-padding-top: 76px;
+  }
+
+  .topbar {
+    padding-bottom: 8px;
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .topbar-link {
+    display: none;
+  }
+
+  .site-nav {
+    display: none;
+    margin-inline: 0;
+    overflow: visible;
+  }
+
+  .topbar.is-open .site-nav {
+    display: block;
+    padding-block: 8px 16px;
+  }
+
+  .nav-list {
+    flex-direction: column;
+    gap: 0;
+    width: auto;
+    padding-inline: 0;
+  }
+
+  .nav-list a {
+    min-height: 52px;
+    color: var(--on-night);
+    font-size: var(--step-lead);
+  }
+}
+
 @media (max-width: 960px) {
   .install-inner,
   .builder,
@@ -1313,15 +1484,6 @@ input:disabled {
 }
 
 @media (max-width: 720px) {
-  .topbar {
-    grid-template-columns: auto 1fr auto;
-    gap: 8px;
-  }
-
-  .wordmark {
-    justify-self: center;
-  }
-
   .hero {
     min-height: 0;
     padding-top: calc(62vw + 8px);
@@ -1337,29 +1499,19 @@ input:disabled {
     max-width: none;
   }
 
-
-  .folder,
   .folder-front {
     width: 100%;
+    margin-top: 80px;
   }
 
-  .folder {
-    height: 52px;
-    margin-top: 32px;
-  }
+  .folder-front::before { left: 3%; right: 3%; }
+  .folder-front::after { left: 6%; right: 6%; }
 
   .folder-tab {
-    height: 32px;
-    padding: 0 20px;
-    font-size: var(--step-small);
+    right: 4%;
+    height: 40px;
+    padding: 0 24px;
   }
-
-  .folders { padding-top: 32px; }
-  .folder-faq .folder-tab { left: auto; right: 4%; }
-  .folder-reference .folder-tab { left: 30%; }
-  .folder-features .folder-tab { left: 4%; }
-  .folder-builder .folder-tab { left: auto; right: 4%; }
-  .folder-front { margin-top: 32px; }
 
   .install-head .button {
     width: 100%;
@@ -1395,7 +1547,8 @@ input:disabled {
   }
 
   .terminals {
-    width: 100%;
+    width: 90%;
+    transform: translate(4%, 10%);
   }
 
   .scenario-list {

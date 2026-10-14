@@ -84,17 +84,33 @@
 <body>
   <a class="skip-link" href="#main">跳到主要內容</a>
 
-  <div class="hero-field">
-    <header class="topbar">
-      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="切換為深色主題">深色</button>
-      <a class="wordmark" href="/" aria-label="pdf-encrypt 首頁">
-        <svg class="seal-mark" viewBox="0 0 40 40" aria-hidden="true"><use href="#seal"/></svg>
-        <span>pdf-encrypt</span>
-      </a>
+  <header class="topbar">
+    <a class="wordmark" href="#main" aria-label="pdf-encrypt，回到頁首">
+      <svg class="seal-mark" viewBox="0 0 40 40" aria-hidden="true"><use href="#seal"/></svg>
+      <span>pdf-encrypt</span>
+    </a>
+    <nav class="site-nav" id="site-nav" aria-label="章節">
+      <ul class="nav-list" role="list">
+        <li><a href="#install">安裝</a></li>
+        <li><a href="#stages">三步</a></li>
+        <li><a href="#scenarios">情境</a></li>
+        <li><a href="#builder">指令產生器</a></li>
+        <li><a href="#features">功能</a></li>
+        <li><a href="#reference">演算法</a></li>
+        <li><a href="#faq">常見問題</a></li>
+      </ul>
+    </nav>
+    <div class="topbar-actions">
       <a class="topbar-link" href="https://github.com/doggy8088/pdf-encrypt" target="_blank" rel="noopener noreferrer">GitHub</a>
-    </header>
+      <button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="site-nav">目錄</button>
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="深色主題" aria-pressed="false">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="1" y="1" width="18" height="18" class="theme-off"/><path d="M1 1h9v18H1z" class="theme-on"/></svg>
+      </button>
+    </div>
+  </header>
 
-    <main id="main" tabindex="-1">
+  <main id="main" tabindex="-1">
+  <div class="hero-field">
       <section class="hero" aria-labelledby="hero-title">
         <svg class="hero-seal" viewBox="0 0 40 40" aria-hidden="true"><use href="#seal"/></svg>
         <div class="hero-copy">
@@ -104,15 +120,8 @@
         </div>
       </section>
 
-      <nav class="folders" aria-label="章節">
-        <a class="folder folder-faq" href="#faq"><span class="folder-tab">常見問題</span><span class="folder-summary">權限、隱私、忘記密碼、原檔與平台</span></a>
-        <a class="folder folder-reference" href="#reference"><span class="folder-tab">演算法與權限</span><span class="folder-summary">四種演算法、八種權限、三種密碼組合</span></a>
-        <a class="folder folder-features" href="#features"><span class="folder-tab">功能</span><span class="folder-summary">加密、權限、重新加密、文件屬性</span></a>
-        <a class="folder folder-builder" href="#builder"><span class="folder-tab">指令產生器</span><span class="folder-summary">勾選選項，產生 bash 或 PowerShell 指令</span></a>
-      </nav>
-
       <section id="install" class="folder-front" aria-labelledby="install-title">
-        <span class="folder-tab folder-tab-front" aria-hidden="true"></span>
+        <span class="folder-tab" aria-hidden="true">安裝</span>
         <div class="install-inner">
           <div class="install-head">
             <h2 id="install-title" class="reveal">一行裝好</h2>
@@ -172,26 +181,25 @@
           </div>
         </div>
       </section>
-    </main>
   </div>
 
-  <section class="stages" aria-labelledby="stages-title">
+  <section id="stages" class="stages" aria-labelledby="stages-title">
     <h2 id="stages-title" class="reveal">三步蓋好印章</h2>
     <ol class="stage-bar" data-ui>
       <li class="stage stage-install reveal">
-        <span class="stage-time">幾秒鐘</span>
-        <span class="stage-text">先用一行指令裝好單一執行檔。</span>
+        <span class="stage-time">約 4 秒</span>
+        <span class="stage-text">安裝：一行指令裝好單一執行檔。</span>
       </li>
       <li class="stage stage-compose reveal">
-        <span class="stage-time">約一分鐘</span>
-        <span class="stage-text">接著選好密碼、權限與演算法，組出指令。</span>
+        <span class="stage-time">約 60 秒</span>
+        <span class="stage-text">組指令：選好密碼、權限與演算法。</span>
       </li>
       <li class="stage stage-run reveal">
-        <span class="stage-time">不到一秒</span>
-        <span class="stage-text">最後執行，寫出加密後的 PDF。</span>
+        <span class="stage-time">0.52 秒</span>
+        <span class="stage-text">執行：寫出加密後的 PDF。</span>
       </li>
     </ol>
-    <p class="stages-note reveal">實測：61 頁、3.5 MB 的 PDF 以 AES-256 加密耗時 0.52 秒；安裝指令稿在一般網路下約 4 秒完成。</p>
+    <p class="stages-note reveal">安裝與加密為實測：安裝指令稿在一般網路下約 4 秒；61 頁、3.5 MB 的 PDF 以 AES-256 加密 0.52 秒。組指令的時間為估計。</p>
   </section>
 
   <section class="showcase" id="scenarios" aria-labelledby="scenarios-title">
@@ -498,6 +506,8 @@ output_encrypted: true</code></pre>
       </article>
     </div>
   </section>
+
+  </main>
 
   <footer class="site-footer">
     <div class="footer-mark">
