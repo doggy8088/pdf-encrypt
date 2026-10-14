@@ -672,7 +672,7 @@ jobs:
     needs:
       - plan
       - host
-    if: ${{ always() && needs.host.result == 'success' && needs.plan.outputs.publishing == 'true' }}
+    if: ${{ always() && needs.plan.result == 'success' && ((github.event_name == 'workflow_dispatch' && inputs.verify_trusted_publishing) || (needs.host.result == 'success' && needs.plan.outputs.publishing == 'true')) }}
     runs-on: ubuntu-22.04
     environment: npm
     permissions:
@@ -690,7 +690,11 @@ jobs:
           # npm 11.5.1 or later is required for trusted publishing.
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
+      - name: Verify Trusted Publishing authentication
+        if: ${{ inputs.verify_trusted_publishing }}
+        run: node npm/verify-trusted-publishing.mjs
       - name: Download release executables
+        if: ${{ !inputs.verify_trusted_publishing }}
         run: |
           gh release download "${{ needs.plan.outputs.tag }}" \
             --repo "${{ github.repository }}" \
@@ -699,10 +703,12 @@ jobs:
             --pattern 'pdf-encrypt-*-unknown-linux-musl' \
             --pattern 'pdf-encrypt-*-pc-windows-msvc.exe'
       - name: Build npm packages
+        if: ${{ !inputs.verify_trusted_publishing }}
         run: |
           node npm/build-packages.mjs "${{ needs.plan.outputs.version }}" target/npm-binaries target/npm > target/npm-packages.txt
           cat target/npm-packages.txt
       - name: Publish npm packages
+        if: ${{ !inputs.verify_trusted_publishing }}
         env:
           # Trusted publishing is used when it is configured on npmjs.com.
           # NPM_TOKEN is the fallback, for example for the first publish.

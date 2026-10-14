@@ -65,6 +65,19 @@ npm 只能替已存在的套件設定 Trusted Publisher，因此 7 個套件的�
 
 * * *
 
+## 驗證設定
+
+`verify_trusted_publishing=true` 模式會同時驗證 crates.io 與 npm。npm 部分由 `npm/verify-trusted-publishing.mjs` 對 7 個套件逐一交換 OIDC token，不發布任何版本：
+
+```sh
+gh workflow run release.yml --repo doggy8088/pdf-encrypt --ref main \
+  -f verify_trusted_publishing=true -f republish_existing=false
+```
+
+認證成功只代表設定可用。npm 顯示的 **Pending validation** 狀態須等第一次實際由 CI 發布後才會解除。
+
+* * *
+
 ## 發布行為
 
 - `publish-npm` 在 GitHub Release 建立後執行，先發布 6 個平台套件，最後發布主套件。
