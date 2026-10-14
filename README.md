@@ -1,12 +1,13 @@
 # pdf-encrypt：PDF 加密與解密工具
 
-`pdf-encrypt` 是以 Rust 撰寫的命令列工具，用來加密或解密 PDF 文件。實作風格參考 `pdf-shrink`：CLI 負責解析參數與列印報表，核心 PDF 處理邏輯放在 library API，並使用 `lopdf` 直接讀寫 PDF，不依賴外部 PDF 工具。
+`pdf-encrypt` 是以 Rust 撰寫的命令列工具，用來加密、解密及讀寫 PDF 文件屬性。實作風格參考 `pdf-shrink`：CLI 負責解析參數與列印報表，核心 PDF 處理邏輯放在 library API，並使用 `lopdf` 直接讀寫 PDF，不依賴外部 PDF 工具。
 
 ## 功能
 
 - 加密 PDF，預設使用 `aes-256`。
 - 解密已加密 PDF，輸出不含 `/Encrypt` dictionary 的一般 PDF。
 - 可用 `info` 唯讀查詢 PDF 文件屬性，並用 `--json` 供 AI 代理預填文件資訊欄位。
+- 可用 `edit` 獨立編輯文件屬性，保留未指定的欄位、自訂 XMP 與既有加密設定。
 - 支援開啟文件密碼 (`--open-password`) 與擁有者密碼 (`--owner-password`)。
 - 可設定 PDF viewer 權限，例如列印、複製、修改、註解、填表等。
 - 可用 `--input-open-password` 先開啟已加密輸入檔，再重新加密成新密碼或新演算法。
@@ -106,6 +107,37 @@ AI 代理應先執行 `info --json`，用 `document_info` 預填欄位並一次�
 
 * * *
 
+### 編輯文件屬性
+
+`edit` 沿用加密指令的八個 `--doc-*` 參數，只修改指定欄位，同步更新 Document Info 與 XMP。未指定的欄位及自訂屬性會保留；至少須指定一個欄位。
+
+```bash
+pdf-encrypt edit -i report.pdf --doc-title "新標題" --doc-author "作者"
+pdf-encrypt edit -i report.pdf -o updated.pdf --doc-keywords ""
+```
+
+未指定 `-o` 時，預設另存為 `report_edited.pdf`。空字串代表清空值，省略參數代表保留原值。編輯描述時，會保留原主旨；若來源 XMP 以 `dc:description` 同時表示主旨及描述，會另存原主旨至自訂 XMP Subject。
+
+加密 PDF 使用既有密碼，不必重新指定演算法或權限。輸出保留原有加密方式、開啟密碼、擁有者密碼、權限與 metadata 加密設定；未加密的輸入仍保持未加密。
+
+```bash
+pdf-encrypt edit -i encrypted.pdf -p "$PDF_PASSWORD" --doc-description "新描述"
+```
+
+AES-256 可使用開啟密碼或擁有者密碼；AES-128／RC4 若有非空開啟密碼，須使用開啟密碼。免開啟密碼的 PDF 可省略 `-p`。密碼驗證失敗會停止處理。
+
+原地修改須明確使用 `--in-place`；不能用 `-o` 指向輸入檔。覆蓋既有輸出或原地修改會詢問確認，已取得覆蓋授權時可加 `--force`：
+
+```bash
+pdf-encrypt edit -i report.pdf --in-place --force --doc-title "新標題"
+```
+
+寫入會先儲存至輸出目錄的暫存檔，成功後才取代目標。既有 Info 或 XMP 格式錯誤、密碼錯誤或儲存失敗時，指令回傳非零退出碼並保留原檔與既有輸出。XMP 保留原有 UTF-8／UTF-16 編碼與未修改的 XML 屬性。
+
+AI 代理應先用 `info --json` 讀取原值。使用者已指定的修改直接採用；尚不明確的修改連同原值一次請使用者確認，未修改欄位不需重新輸入。
+
+* * *
+
 ### 加密
 
 ```bash
@@ -194,7 +226,7 @@ pdf-encrypt encrypt \
   --doc-copyright-info-url "https://example.com/copyright"
 ```
 
-可用的文件資訊參數：
+`encrypt` 與 `edit` 共用的文件資訊參數：
 
 | 參數 | 寫入資訊 |
 | --- | --- |
@@ -280,7 +312,8 @@ pdf-encrypt decrypt -i report_encrypted.pdf -p secret
 
 ```rust
 use pdf_encrypt::{
-    decrypt_pdf, encrypt_pdf, encrypt_pdf_with_options, read_only_permissions, EncryptOptions,
+    decrypt_pdf, edit_pdf_properties, encrypt_pdf, encrypt_pdf_with_options,
+    read_only_permissions, DocumentInfo, EditOptions, EncryptOptions,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -294,6 +327,15 @@ fn main() -> anyhow::Result<()> {
     encrypt_pdf_with_options("input.pdf", "readonly.pdf", &options)?;
 
     decrypt_pdf("locked.pdf", "plain.pdf", "secret")?;
+
+    let edit_options = EditOptions {
+        document_info: DocumentInfo {
+            title: Some("新標題".to_string()),
+            ..DocumentInfo::default()
+        },
+        ..EditOptions::default()
+    };
+    edit_pdf_properties("input.pdf", "updated.pdf", &edit_options)?;
     Ok(())
 }
 ```

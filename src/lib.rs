@@ -3,8 +3,11 @@
 //! The tool rewrites PDF files with lopdf's standard security handler support.
 //! It can encrypt an unencrypted PDF with RC4/AES profiles or decrypt an
 //! encrypted PDF when the correct user or owner password is provided.
+//! It also reads and edits document properties while preserving existing encryption.
 
+mod edit;
 mod properties;
+pub use edit::{edit_pdf_properties, EditOptions};
 pub use properties::{read_pdf_properties, MetadataStatus, PdfProperties, PropertyConflict};
 
 use std::cmp::Ordering;
@@ -18,7 +21,7 @@ use anyhow::{bail, Context, Result};
 use lopdf::encryption::crypt_filters::{Aes128CryptFilter, Aes256CryptFilter, CryptFilter};
 use lopdf::{
     text_string, Dictionary, Document, EncryptionState, EncryptionVersion, Object, ObjectId,
-    Permissions, Stream, StringFormat,
+    Permissions, StringFormat,
 };
 
 const FILE_ID_LEN: usize = 16;
@@ -73,6 +76,7 @@ impl EncryptionAlgorithm {
 pub enum PdfOperation {
     Encrypt,
     Decrypt,
+    Edit,
 }
 
 impl PdfOperation {
@@ -81,11 +85,13 @@ impl PdfOperation {
         match self {
             Self::Encrypt => "encrypt",
             Self::Decrypt => "decrypt",
+            Self::Edit => "edit",
         }
     }
 }
 
-/// Document information read from a PDF or written before encryption.
+/// Document information read from a PDF or written during editing/encryption.
+/// `None` preserves a field; `Some("")` explicitly writes an empty value.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct DocumentInfo {
     /// Document title.
@@ -352,12 +358,12 @@ fn apply_document_info(doc: &mut Document, info: &DocumentInfo) -> Result<()> {
     }
 
     update_info_dictionary(doc, info)?;
-    update_xmp_metadata(doc, info)?;
+    edit::update_xmp_metadata(doc, info)?;
     Ok(())
 }
 
 fn update_info_dictionary(doc: &mut Document, info: &DocumentInfo) -> Result<()> {
-    let info_id = ensure_info_dictionary_id(doc);
+    let info_id = ensure_info_dictionary_id(doc)?;
     let info_dict = doc
         .get_dictionary_mut(info_id)
         .context("Failed to access PDF Info dictionary")?;
@@ -373,21 +379,26 @@ fn update_info_dictionary(doc: &mut Document, info: &DocumentInfo) -> Result<()>
     Ok(())
 }
 
-fn ensure_info_dictionary_id(doc: &mut Document) -> ObjectId {
+fn ensure_info_dictionary_id(doc: &mut Document) -> Result<ObjectId> {
     let existing_info = doc.trailer.get(b"Info").cloned().ok();
 
     match existing_info {
-        Some(Object::Reference(id)) if doc.get_dictionary(id).is_ok() => id,
+        Some(Object::Reference(id)) => {
+            doc.get_dictionary(id)
+                .context("Invalid PDF Info dictionary")?;
+            Ok(id)
+        }
         Some(Object::Dictionary(dict)) => {
             let id = doc.add_object(dict);
             doc.trailer.set("Info", id);
-            id
+            Ok(id)
         }
-        _ => {
+        None | Some(Object::Null) => {
             let id = doc.add_object(Dictionary::new());
             doc.trailer.set("Info", id);
-            id
+            Ok(id)
         }
+        _ => bail!("Invalid PDF Info dictionary; refusing to discard existing metadata"),
     }
 }
 
@@ -395,28 +406,6 @@ fn set_info_text(info_dict: &mut Dictionary, key: &[u8], value: &Option<String>)
     if let Some(value) = value {
         info_dict.set(key, text_string(value));
     }
-}
-
-fn update_xmp_metadata(doc: &mut Document, info: &DocumentInfo) -> Result<()> {
-    let catalog_id = doc
-        .trailer
-        .get(b"Root")
-        .and_then(Object::as_reference)
-        .context("PDF trailer does not reference a catalog")?;
-
-    let mut metadata_dict = Dictionary::new();
-    metadata_dict.set("Type", "Metadata");
-    metadata_dict.set("Subtype", "XML");
-    let metadata_id = doc.add_object(Stream::new(
-        metadata_dict,
-        build_xmp_metadata(info).into_bytes(),
-    ));
-
-    let catalog = doc
-        .get_dictionary_mut(catalog_id)
-        .context("Failed to access PDF catalog")?;
-    catalog.set("Metadata", metadata_id);
-    Ok(())
 }
 
 fn build_xmp_metadata(info: &DocumentInfo) -> String {

@@ -1,11 +1,11 @@
 ---
 name: pdf-encrypt
-description: Read PDF document properties, encrypt, decrypt, re-encrypt, and apply PDF viewer permissions/metadata with the local Rust `pdf-encrypt` CLI. Use when a user wants to inspect PDF metadata, prefill document information, password-protect a PDF, remove PDF encryption when they have the password, create read-only PDF copies, set PDF permissions, change PDF encryption algorithms, or update PDF metadata while encrypting.
+description: Read or edit PDF document properties, encrypt, decrypt, re-encrypt, and apply viewer permissions with the official `pdf-encrypt` CLI. Use to inspect metadata, prefill document information, edit properties while preserving existing encryption, password-protect PDFs, remove encryption with a known password, create read-only copies, or change encryption settings.
 ---
 
 # pdf-encrypt
 
-Use this skill to encrypt, decrypt, or re-encrypt PDF files with the `pdf-encrypt` command-line tool in this repository.
+Use this skill to read or edit document properties, encrypt, decrypt, or re-encrypt PDF files with the `pdf-encrypt` command-line tool in this repository.
 
 ## What this tool does
 
@@ -20,6 +20,7 @@ It can:
 - Create PDFs that do not require an open password but restrict viewer permissions through an owner password.
 - Configure viewer permissions such as print, copy, modify, annotate, fill forms, accessibility extraction, and page assembly.
 - Apply `--read-only` / `-ro`, which means `--allow all --deny modify --deny assemble`.
+- Edit Document Info / XMP metadata with `edit`, preserving unselected properties and existing encryption settings.
 - Update Document Info / XMP metadata during encryption.
 - Encrypt in place with `--in-place` after writing a temporary file and replacing the input only after success.
 
@@ -126,7 +127,7 @@ if [ ! -x "$TOOL" ]; then
 fi
 ```
 
-After this resolver succeeds, run `"$TOOL"` for PDF encryption/decryption. Do not replace `"$TOOL"` with another PDF command, and do not run `find` to discover other executables.
+After this resolver succeeds, run `"$TOOL"` for PDF property reads/edits and encryption/decryption. Do not replace `"$TOOL"` with another PDF command, and do not run `find` to discover other executables.
 
 ## Build the tool
 
@@ -197,6 +198,22 @@ cargo run -- encrypt \
 
 需要開啟密碼時先向使用者取得，再加上 `--password "$PDF_PASSWORD"`。目前 PDF 相依套件無法可靠地以舊版擁有者密碼讀取 AES-128／RC4；這類文件若開啟密碼非空，必須提供開啟密碼。讀取失敗時回報原因，不另用其他工具繞過。已解析的執行檔若尚不支援 `info`，須回報需要包含此功能的版本。
 
+### `edit`
+
+使用者只要求修改文件屬性時，執行 `edit`。先以 `info --json` 讀取原值；已指定的修改直接採用，尚不明確的修改連同原值一次請使用者確認。只傳入要修改的 `--doc-*` 欄位，未修改欄位不用重填。
+
+```bash
+"$TOOL" edit -i "$PDF_INPUT" -o "$PDF_OUTPUT" --doc-title "$DOC_TITLE"
+```
+
+- 共用 `encrypt` 的八個 `--doc-*` 參數，至少指定一個；空字串清空值，省略保留原值。
+- 預設輸出 `<原檔名>_edited.pdf`。原地修改使用 `--in-place`；覆蓋已取得授權時加 `--force`，略過互動確認。
+- 以 `--password "$PDF_PASSWORD"` 開啟加密輸入，保留原演算法、密碼、權限及 metadata 加密設定。密碼限制與 `info` 相同。
+- 保留未修改的 Info、自訂 XMP、頁面內容與 XMP 編碼。既有 metadata 無法解析時會停止，不以新資料取代。
+- 編輯描述時會保留原主旨；來源若以 `dc:description` 共用兩者，原主旨會另存為自訂 XMP Subject。
+- 完成後用 `info --json` 檢查指定欄位，並確認報表的 `operation: edit`、加密狀態與頁數。
+- 已解析的執行檔若不支援 `edit`，回報需要包含此功能的版本。
+
 ### `encrypt`
 
 | Argument | Required | Default | Purpose |
@@ -262,7 +279,7 @@ cargo run -- encrypt \
 
 Always preserve the original PDF unless in-place replacement is explicitly requested.
 
-After encryption or decryption, verify that:
+After editing, encryption, or decryption, verify that:
 
 - The command exited successfully.
 - The output PDF exists and has non-zero size.

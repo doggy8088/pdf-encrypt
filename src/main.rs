@@ -4,8 +4,9 @@ use anyhow::Context;
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use lopdf::Permissions;
 use pdf_encrypt::{
-    decrypt_pdf_with_options, encrypt_pdf_with_options, read_pdf_properties, DecryptOptions,
-    DocumentInfo, EncryptOptions, EncryptionAlgorithm, PdfCryptoReport,
+    decrypt_pdf_with_options, edit_pdf_properties, encrypt_pdf_with_options, read_pdf_properties,
+    DecryptOptions, DocumentInfo, EditOptions, EncryptOptions, EncryptionAlgorithm,
+    PdfCryptoReport,
 };
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -22,9 +23,9 @@ const ROOT_AFTER_HELP: &str = r#"AI AGENT GUIDELINES (AI 代理執行與互動�
      - 重新加密既有加密 PDF 時，若未知舊密碼，必須先向使用者詢問 --input-open-password。
 
   2. 保護原檔與避免非互動式卡死 (Preserve Originals & Avoid Stdin Hangs):
-     - 預設應保留原始 PDF（不加 --in-place，輸出至 -o <FILE> 或預設 <原檔名>_encrypted.pdf / <原檔名>_decrypted.pdf）。
+     - 預設應保留原始 PDF（不加 --in-place，輸出至 -o <FILE> 或預設 <原檔名>_encrypted.pdf / <原檔名>_decrypted.pdf / <原檔名>_edited.pdf）。
      - 除非使用者明確要求覆蓋原檔，否則請勿使用 --in-place，亦請勿將 --output 指向與 --input 相同的路徑。
-     - [重要] encrypt 在輸出檔案已存在，或使用 --in-place 且未加 --force (-f) 時，會在終端機互動提示：
+     - [重要] encrypt / edit 在輸出檔案已存在，或使用 --in-place 且未加 --force (-f) 時，會在終端機互動提示：
        「即將覆蓋檔案：...，是否繼續？[y/N] 」並等待 stdin 輸入。
      - AI Agent 於非互動環境執行前，應先檢查輸出路徑是否已存在；若需覆蓋既有檔案或使用 --in-place，
        必須先向使用者確認，取得同意後再加上 --force (-f) 執行，避免卡死在 stdin 提示。
@@ -34,7 +35,7 @@ const ROOT_AFTER_HELP: &str = r#"AI AGENT GUIDELINES (AI 代理執行與互動�
      - 若需保護文件機密性，請務必設定強密碼 (--open-password) 並使用預設的 --algorithm aes-256。
 
   4. 預設加密流程與欄位詢問 (Default Workflow & Request User Input):
-     - 使用者未另行指定時，AI Agent 應預設採用下方 DEFAULT ENCRYPT WORKFLOW：免開啟密碼、
+     - 使用者要求加密且未另行指定時，AI Agent 應預設採用下方 DEFAULT ENCRYPT WORKFLOW：免開啟密碼、
        使用 --owner-password 與 --deny modify --deny assemble，另存新檔並寫入全部八個文件資訊欄位。
      - 先執行 pdf-encrypt info -i "$PDF_INPUT" --json，唯讀查詢使用者提供的 PDF 文件屬性（Document Info 與 XMP），
        作為下列文件資訊欄位的預設值；使用者已明確指定的值優先於原檔屬性：
@@ -54,6 +55,12 @@ QUICK REFERENCE (指令與密碼／權限規則速覽):
   * info 文件屬性查詢：
     - pdf-encrypt info -i report.pdf --json：唯讀輸出文件資訊預設值、兩個來源及衝突／警告。
     - 需要密碼的輸入檔加上 --password (-p)；免開啟密碼的 PDF 可省略。properties 是 info 的別名。
+
+  * edit 文件屬性編輯：
+    - pdf-encrypt edit -i report.pdf --doc-title "新標題"：只修改指定欄位，另存 report_edited.pdf。
+    - 先用 info --json 取得原值；向使用者一次確認尚不明確的修改，未修改欄位不用重填。
+    - 保留既有加密設定與其他屬性；--password 使用輸入 PDF 的既有密碼。
+    - 空字串清空值；--in-place 原地修改，--force 略過已授權的覆蓋確認。
 
   * encrypt 密碼語意：
     - 僅指定 -p, --open-password <PW>      : 開啟輸出 PDF 需輸入 <PW>；擁有者密碼自動設為相同 <PW>。
@@ -118,7 +125,7 @@ COMMON EXAMPLES (常用範例):
 
 OUTPUT REPORT (執行結果報表欄位，可用於驗證執行結果):
   成功時於 stdout 輸出完成訊息與以下欄位：
-  operation (encrypt|decrypt), algorithm (僅 encrypt), input_size, output_size,
+  operation (encrypt|decrypt|edit), algorithm (僅 encrypt), input_size, output_size,
   size_delta, input_encrypted (true|false), output_encrypted (true|false), pages, objects"#;
 
 const ENCRYPT_AFTER_HELP: &str = r#"AI AGENT GUIDELINES FOR ENCRYPT (AI 代理加密執行規範):
@@ -136,7 +143,7 @@ const ENCRYPT_AFTER_HELP: &str = r#"AI AGENT GUIDELINES FOR ENCRYPT (AI 代理�
        確認後務必加上 --force (-f) 以非互動方式執行。
 
   3. 預設加密流程與欄位詢問 (Default Workflow & Request User Input):
-     - 使用者未另行指定時，AI Agent 應預設採用下方 DEFAULT ENCRYPT WORKFLOW：免開啟密碼、
+     - 使用者要求加密且未另行指定時，AI Agent 應預設採用下方 DEFAULT ENCRYPT WORKFLOW：免開啟密碼、
        使用 --owner-password 與 --deny modify --deny assemble，另存新檔並寫入全部八個文件資訊欄位。
      - 先執行 pdf-encrypt info -i "$PDF_INPUT" --json，唯讀查詢使用者提供的 PDF 文件屬性（Document Info 與 XMP），
        作為下列文件資訊欄位的預設值；使用者已明確指定的值優先於原檔屬性：
@@ -276,7 +283,31 @@ EXAMPLES (文件屬性查詢範例):
   pdf-encrypt info -i encrypted.pdf --password "$PDF_PASSWORD" --json
   pdf-encrypt properties -i report.pdf --json"#;
 
-/// PDF 加密與解密命令列工具。
+const EDIT_AFTER_HELP: &str = r#"EDIT WORKFLOW (編輯文件屬性):
+  - 只修改提供的 --doc-* 欄位；未指定的 Document Info 與 XMP 屬性保留。
+  - 至少提供一個 --doc-* 欄位。傳入空字串可清空值，例如 --doc-keywords ""。
+  - 預設另存為 <原檔名>_edited.pdf；使用 --in-place 才會取代原檔。
+  - 輸出已存在或原地編輯時會詢問覆蓋；取得使用者授權後加 --force 可略過提示。
+  - 保留既有加密、密碼、權限與 metadata 加密設定；未加密 PDF 仍為未加密。
+  - 加密輸入使用既有 --password (-p)；免開啟密碼的 PDF 可省略。
+    AES-256 支援開啟或擁有者密碼；AES-128/RC4 有非空開啟密碼時須使用開啟密碼。
+  - 既有 XMP 無法解析時會回報錯誤，不會以新 metadata 取代而丟失其他屬性。
+
+AI AGENT GUIDELINES (AI 代理欄位詢問規範):
+  - 使用者只要求編輯文件屬性時，使用 edit。
+  - 先執行 info -i "$PDF_INPUT" --json，讀取原檔屬性作為預填值。
+  - 使用者已明確指定的修改直接採用；尚不明確的欄位，連同原值一次請使用者確認。
+  - 不要求使用者重填未修改的欄位；不得自行推測密碼或缺少的值。
+  - null 表示未取得值，"" 表示空字串；檢查來源狀態、conflicts 與 warnings。
+
+EXAMPLES (範例):
+  pdf-encrypt edit -i report.pdf --doc-title "新標題" --doc-author "作者"
+  pdf-encrypt edit -i report.pdf -o updated.pdf --doc-keywords ""
+  pdf-encrypt edit -i encrypted.pdf -p "$PDF_PASSWORD" --doc-description "新描述"
+  pdf-encrypt edit -i report.pdf --in-place --force --doc-title "新標題"
+"#;
+
+/// PDF 加密、解密與文件屬性讀寫命令列工具。
 #[derive(Debug, Parser)]
 #[command(
     name = "pdf-encrypt",
@@ -297,6 +328,8 @@ enum Command {
     /// 唯讀查詢 PDF 文件屬性、Document Info 與 XMP；可輸出 JSON（別名 properties）
     #[command(visible_alias = "properties")]
     Info(InfoArgs),
+    /// 編輯指定文件屬性，保留其他屬性及既有加密設定
+    Edit(Box<EditArgs>),
     /// 將 PDF 加密、設定檢視權限或更新 Metadata 並寫出檔案（或以 --in-place 覆蓋原檔）
     Encrypt(Box<EncryptArgs>),
     /// 將已加密 PDF 解密（移除密碼與權限限制）並寫出新檔案
@@ -374,41 +407,80 @@ struct EncryptArgs {
     #[arg(long = "deny", value_enum, value_name = "PERMISSION")]
     deny: Vec<CliPermission>,
 
-    /// 文件標題；加密前寫入 Document Info (Title) 與 XMP (dc:title)
-    #[arg(long = "doc-title", value_name = "TEXT")]
-    doc_title: Option<String>,
-
-    /// 文件作者；加密前寫入 Document Info (Author) 與 XMP (dc:creator)
-    #[arg(long = "doc-author", value_name = "TEXT")]
-    doc_author: Option<String>,
-
-    /// 文件主旨；加密前寫入 Document Info (Subject) 與 XMP (pdfencrypt:Subject)
-    #[arg(long = "doc-subject", value_name = "TEXT")]
-    doc_subject: Option<String>,
-
-    /// 文件關鍵字（可以逗號或分號分隔）；加密前寫入 Document Info (Keywords) 與 XMP (pdf:Keywords, dc:subject)
-    #[arg(long = "doc-keywords", value_name = "TEXT")]
-    doc_keywords: Option<String>,
-
-    /// 文件描述；加密前寫入 Document Info (Description) 與 XMP (dc:description)
-    #[arg(long = "doc-description", value_name = "TEXT")]
-    doc_description: Option<String>,
-
-    /// 文件著作權狀態（如 Copyrighted 或 Public Domain）；加密前寫入 Document Info 與 XMP (xmpRights:Marked)
-    #[arg(long = "doc-copyright-status", value_name = "TEXT")]
-    doc_copyright_status: Option<String>,
-
-    /// 文件著作權聲明；加密前寫入 Document Info (CopyrightNotice) 與 XMP (dc:rights)
-    #[arg(long = "doc-copyright-notice", value_name = "TEXT")]
-    doc_copyright_notice: Option<String>,
-
-    /// 文件著作權資訊 URL；加密前寫入 Document Info (CopyrightInfoURL) 與 XMP (xmpRights:WebStatement)
-    #[arg(long = "doc-copyright-info-url", value_name = "URL")]
-    doc_copyright_info_url: Option<String>,
+    #[command(flatten)]
+    document_info: DocumentInfoArgs,
 
     /// 不加密 PDF XMP metadata stream（預設會一併加密 metadata）
     #[arg(long = "no-encrypt-metadata")]
     no_encrypt_metadata: bool,
+}
+
+#[derive(Debug, Args)]
+struct DocumentInfoArgs {
+    /// 文件標題；寫入 Document Info (Title) 與 XMP (dc:title)
+    #[arg(long = "doc-title", value_name = "TEXT")]
+    doc_title: Option<String>,
+
+    /// 文件作者；寫入 Document Info (Author) 與 XMP (dc:creator)
+    #[arg(long = "doc-author", value_name = "TEXT")]
+    doc_author: Option<String>,
+
+    /// 文件主旨；寫入 Document Info (Subject) 與 XMP (pdfencrypt:Subject)
+    #[arg(long = "doc-subject", value_name = "TEXT")]
+    doc_subject: Option<String>,
+
+    /// 文件關鍵字（可以逗號或分號分隔）；寫入 Document Info (Keywords) 與 XMP (pdf:Keywords, dc:subject)
+    #[arg(long = "doc-keywords", value_name = "TEXT")]
+    doc_keywords: Option<String>,
+
+    /// 文件描述；寫入 Document Info (Description) 與 XMP (dc:description)
+    #[arg(long = "doc-description", value_name = "TEXT")]
+    doc_description: Option<String>,
+
+    /// 文件著作權狀態（如 Copyrighted 或 Public Domain）；寫入 Document Info 與 XMP (xmpRights:Marked)
+    #[arg(long = "doc-copyright-status", value_name = "TEXT")]
+    doc_copyright_status: Option<String>,
+
+    /// 文件著作權聲明；寫入 Document Info (CopyrightNotice) 與 XMP (dc:rights)
+    #[arg(long = "doc-copyright-notice", value_name = "TEXT")]
+    doc_copyright_notice: Option<String>,
+
+    /// 文件著作權資訊 URL；寫入 Document Info (CopyrightInfoURL) 與 XMP (xmpRights:WebStatement)
+    #[arg(long = "doc-copyright-info-url", value_name = "URL")]
+    doc_copyright_info_url: Option<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    after_help = EDIT_AFTER_HELP,
+    group(ArgGroup::new("edit_fields").required(true).multiple(true).args([
+        "doc_title", "doc_author", "doc_subject", "doc_keywords", "doc_description",
+        "doc_copyright_status", "doc_copyright_notice", "doc_copyright_info_url"
+    ]))
+)]
+struct EditArgs {
+    /// 要編輯文件屬性的 PDF 檔案路徑
+    #[arg(short, long, value_name = "FILE")]
+    input: PathBuf,
+
+    /// 輸出 PDF 檔案路徑（預設為 <輸入檔名>_edited.pdf）
+    #[arg(short, long, value_name = "FILE", conflicts_with = "in_place")]
+    output: Option<PathBuf>,
+
+    /// 原地修改；先寫入同目錄暫存檔，成功後才取代原檔
+    #[arg(long, conflicts_with = "output")]
+    in_place: bool,
+
+    /// 覆蓋既有輸出檔或使用 --in-place 時略過互動確認
+    #[arg(short, long)]
+    force: bool,
+
+    /// 輸入 PDF 的既有密碼；未指定時嘗試空密碼
+    #[arg(short = 'p', long, value_name = "PASSWORD")]
+    password: Option<String>,
+
+    #[command(flatten)]
+    document_info: DocumentInfoArgs,
 }
 
 #[derive(Debug, Args)]
@@ -499,6 +571,7 @@ fn main() {
 
     let result = match &cli.command {
         Command::Info(args) => run_info(args),
+        Command::Edit(args) => run_edit(args),
         Command::Encrypt(args) => run_encrypt(args),
         Command::Decrypt(args) => run_decrypt(args),
     };
@@ -537,6 +610,31 @@ fn run_info(args: &InfoArgs) -> anyhow::Result<()> {
         writeln!(stdout, "conflicts: {}", value["conflicts"])?;
         writeln!(stdout, "warnings: {}", value["warnings"])?;
     }
+    Ok(())
+}
+
+fn run_edit(args: &EditArgs) -> anyhow::Result<()> {
+    let output = if args.in_place {
+        confirm_overwrite(&args.input, args.force)?;
+        fs::canonicalize(&args.input).context("無法解析輸入檔案路徑")?
+    } else {
+        let output = args
+            .output
+            .clone()
+            .unwrap_or_else(|| default_output_path(&args.input, "edited"));
+        if output.exists() && fs::canonicalize(&args.input)? == fs::canonicalize(&output)? {
+            anyhow::bail!("輸出與輸入為同一檔案；原地編輯請使用 --in-place");
+        }
+        confirm_overwrite_if_needed(&output, args.force)?;
+        output
+    };
+    let options = EditOptions {
+        password: args.password.clone(),
+        document_info: document_info_from_args(&args.document_info),
+    };
+    let report = edit_pdf_properties(&args.input, &output, &options)?;
+    println!("已完成文件屬性編輯：{}", output.display());
+    print_report(&report);
     Ok(())
 }
 
@@ -666,7 +764,7 @@ fn encrypt_options_from_args(args: &EncryptArgs) -> anyhow::Result<EncryptOption
     let mut options = EncryptOptions::with_open_password(open_password);
     options.owner_password = owner_password;
     options.input_open_password = args.input_open_password.clone();
-    options.document_info = document_info_from_args(args);
+    options.document_info = document_info_from_args(&args.document_info);
     options.algorithm = args.algorithm.into();
     options.permissions =
         permissions_from_args(&args.allow, &args.deny, options.permissions, args.read_only);
@@ -674,7 +772,7 @@ fn encrypt_options_from_args(args: &EncryptArgs) -> anyhow::Result<EncryptOption
     Ok(options)
 }
 
-fn document_info_from_args(args: &EncryptArgs) -> DocumentInfo {
+fn document_info_from_args(args: &DocumentInfoArgs) -> DocumentInfo {
     DocumentInfo {
         title: args.doc_title.clone(),
         author: args.doc_author.clone(),

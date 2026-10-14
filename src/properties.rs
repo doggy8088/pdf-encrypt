@@ -9,11 +9,11 @@ use serde::Serialize;
 
 use crate::DocumentInfo;
 
-const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
-const DC: &str = "http://purl.org/dc/elements/1.1/";
-const PDF: &str = "http://ns.adobe.com/pdf/1.3/";
-const RIGHTS: &str = "http://ns.adobe.com/xap/1.0/rights/";
-const PDF_ENCRYPT: &str = "https://github.com/doggy8088/pdf-encrypt/ns/1.0/";
+pub(crate) const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+pub(crate) const DC: &str = "http://purl.org/dc/elements/1.1/";
+pub(crate) const PDF: &str = "http://ns.adobe.com/pdf/1.3/";
+pub(crate) const RIGHTS: &str = "http://ns.adobe.com/xap/1.0/rights/";
+pub(crate) const PDF_ENCRYPT: &str = "https://github.com/doggy8088/pdf-encrypt/ns/1.0/";
 
 /// Whether a metadata source was absent, read, partially read, or unreadable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -75,14 +75,18 @@ pub fn read_pdf_properties<P: AsRef<Path>>(
     }
     validate_decryption_key(&doc, password.unwrap_or_default())?;
 
+    Ok(properties_from_document(&doc))
+}
+
+pub(crate) fn properties_from_document(doc: &Document) -> PdfProperties {
     let mut warnings = Vec::new();
-    let (info_dictionary, info_status) = read_info_dictionary(&doc, &mut warnings);
-    let (xmp, xmp_status) = read_xmp(&doc, &mut warnings);
+    let (info_dictionary, info_status) = read_info_dictionary(doc, &mut warnings);
+    let (xmp, xmp_status) = read_xmp(doc, &mut warnings);
     let info = info_defaults(&info_dictionary);
     let mut conflicts = Vec::new();
     let document_info = merge_defaults(info, xmp_defaults(&xmp.text_values), &mut conflicts);
 
-    Ok(PdfProperties {
+    PdfProperties {
         pdf_version: doc.version.clone(),
         input_encrypted: doc.was_encrypted(),
         pages: doc.get_pages().len(),
@@ -93,10 +97,10 @@ pub fn read_pdf_properties<P: AsRef<Path>>(
         xmp_status,
         conflicts,
         warnings,
-    })
+    }
 }
 
-fn validate_decryption_key(doc: &Document, password: &str) -> Result<()> {
+pub(crate) fn validate_decryption_key(doc: &Document, password: &str) -> Result<()> {
     let Some(state) = &doc.encryption_state else {
         return Ok(());
     };
@@ -278,7 +282,7 @@ fn read_xmp(doc: &Document, warnings: &mut Vec<String>) -> (ParsedXmp, MetadataS
     }
 }
 
-fn decode_xml(bytes: &[u8]) -> Result<String> {
+pub(crate) fn decode_xml(bytes: &[u8]) -> Result<String> {
     if let Some(text) = bytes.strip_prefix(b"\xFF\xFE") {
         decode_utf16(text, true)
     } else if let Some(text) = bytes.strip_prefix(b"\xFE\xFF") {
