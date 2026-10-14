@@ -13,13 +13,189 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+const ROOT_AFTER_HELP: &str = r#"AI AGENT GUIDELINES (AI 代理執行與互動規範):
+  1. 密碼詢問原則 (Request User Input for Passwords):
+     - encrypt 至少須提供 --open-password (-p) 或 --owner-password 其中之一。
+     - 若使用者未提供密碼，或未說明需要「開啟密碼 (-p)」還是「免開啟密碼僅限制權限 (--owner-password)」，
+       AI Agent 必須先向使用者詢問密碼與需求，切勿自行猜測、隨機產生或硬編碼密碼。
+     - decrypt 解密需要開啟密碼的 PDF 時，若使用者未提供密碼，必須先向使用者詢問 --password (-p)。
+     - 重新加密既有加密 PDF 時，若未知舊密碼，必須先向使用者詢問 --input-open-password。
+
+  2. 保護原檔與避免非互動式卡死 (Preserve Originals & Avoid Stdin Hangs):
+     - 預設應保留原始 PDF（不加 --in-place，輸出至 -o <FILE> 或預設 <原檔名>_encrypted.pdf / <原檔名>_decrypted.pdf）。
+     - 除非使用者明確要求覆蓋原檔，否則請勿使用 --in-place，亦請勿將 --output 指向與 --input 相同的路徑。
+     - [重要] encrypt 在輸出檔案已存在，或使用 --in-place 且未加 --force (-f) 時，會在終端機互動提示：
+       「即將覆蓋檔案：...，是否繼續？[y/N] 」並等待 stdin 輸入。
+     - AI Agent 於非互動環境執行前，應先檢查輸出路徑是否已存在；若需覆蓋既有檔案或使用 --in-place，
+       必須先向使用者確認，取得同意後再加上 --force (-f) 執行，避免卡死在 stdin 提示。
+
+  3. 機密性與權限限制說明 (Confidentiality vs. Viewer Permissions):
+     - PDF 權限 (--read-only / --allow / --deny) 為閱讀器應遵守的限制，並非絕對防破解機制。
+     - 若需保護文件機密性，請務必設定強密碼 (--open-password) 並使用預設的 --algorithm aes-256。
+
+QUICK REFERENCE (指令與密碼／權限規則速覽):
+  * encrypt 密碼語意：
+    - 僅指定 -p, --open-password <PW>      : 開啟輸出 PDF 需輸入 <PW>；擁有者密碼自動設為相同 <PW>。
+    - 僅指定 --owner-password <PW>         : 開啟輸出 PDF 不需密碼；用於搭配 --read-only 或 --allow/--deny 限制權限。
+    - 同時指定 --open-password 與 --owner-password : 一般開啟受權限限制，輸入擁有者密碼可取得完整權限。
+    - 指定 --input-open-password <OLD_PW>  : 先以 <OLD_PW> 解開已加密輸入檔，再以新設定重新加密。
+
+  * encrypt 權限計算順序：
+    1. 未指定 --allow 時預設允許全部權限 (all)；若指定 --allow <PERM>（可重複），則僅允許列出的權限。
+    2. 若指定 --read-only (或 -ro)，等同於 --allow all --deny modify --deny assemble。
+    3. 最後依序移除所有 --deny <PERM>（可重複）指定的權限。
+    - 可用 <PERM> 值：all, print, high-quality-print, modify, copy, annotate, fill-forms, accessibility, assemble
+
+  * decrypt 解密規則：
+    - 支援以開啟密碼 (user/open password) 或擁有者密碼 (owner password) 解密，並移除 /Encrypt 字典。
+    - 若 PDF 為空開啟密碼（例如僅設 --owner-password 的唯讀 PDF），可省略 -p 或傳入 -p "" 直接解密。
+
+COMMON EXAMPLES (常用範例):
+  # 1. 使用開啟密碼加密 PDF（預設 aes-256，未指定 -o 時預設輸出 report_encrypted.pdf）
+  pdf-encrypt encrypt -i report.pdf -o report_locked.pdf -p "$PDF_OPEN_PASSWORD"
+
+  # 2. 建立免開啟密碼的唯讀 PDF（開啟免密碼，但禁止修改內容與組合頁面）
+  pdf-encrypt encrypt -i report.pdf -o report_readonly.pdf --owner-password "$PDF_OWNER_PASSWORD" --read-only
+
+  # 3. 建立嚴格僅供檢視的 PDF（禁止修改、組合頁面、列印與複製）
+  pdf-encrypt encrypt -i report.pdf -o report_view_only.pdf --owner-password "$PDF_OWNER_PASSWORD" \
+    --read-only --deny print --deny high-quality-print --deny copy
+
+  # 4. 重新加密已加密的 PDF（先用舊密碼開啟，再換成新密碼）
+  pdf-encrypt encrypt -i old_locked.pdf -o new_locked.pdf \
+    --input-open-password "$OLD_PASSWORD" -p "$NEW_PASSWORD"
+
+  # 5. 加密前同時寫入 PDF Document Info 與 XMP metadata
+  pdf-encrypt encrypt -i report.pdf -o report_locked.pdf -p "$PDF_OPEN_PASSWORD" \
+    --doc-title "規格驅動開發實戰" --doc-author "Will 保哥" --doc-keywords "AI, SDD, Rust"
+
+  # 6. 原地加密並覆蓋原檔（須先向使用者確認覆蓋後，再加 --in-place --force）
+  pdf-encrypt encrypt -i report.pdf -p "$PDF_OPEN_PASSWORD" --in-place --force
+
+  # 7. 解密已加密的 PDF（未指定 -o 時預設輸出 report_locked_decrypted.pdf）
+  pdf-encrypt decrypt -i report_locked.pdf -o report_plain.pdf -p "$PDF_PASSWORD"
+
+  # 8. 解密免開啟密碼的唯讀 PDF（移除權限限制）
+  pdf-encrypt decrypt -i report_readonly.pdf -o report_unlocked.pdf
+
+OUTPUT REPORT (執行結果報表欄位，可用於驗證執行結果):
+  成功時於 stdout 輸出完成訊息與以下欄位：
+  operation (encrypt|decrypt), algorithm (僅 encrypt), input_size, output_size,
+  size_delta, input_encrypted (true|false), output_encrypted (true|false), pages, objects"#;
+
+const ENCRYPT_AFTER_HELP: &str = r#"AI AGENT GUIDELINES FOR ENCRYPT (AI 代理加密執行規範):
+  1. 詢問必要密碼 (Ask User for Passwords):
+     - --open-password (-p) 與 --owner-password 至少必須提供一個。
+     - 若使用者未提供密碼，請先詢問使用者要設定的密碼，以及是否需要「開啟文件時輸入密碼 (-p)」
+       或「開啟免密碼、僅限制唯讀/權限 (--owner-password)」，切勿自行假設或隨機編造密碼。
+     - 若輸入 PDF 本身已加密，必須提供 --input-open-password <OLD_PASSWORD>；若未知舊密碼請先詢問使用者。
+
+  2. 避免覆蓋確認提示導致非互動環境卡死 (Avoid Interactive [y/N] Stdin Hang):
+     - 當輸出檔案已存在，或使用 --in-place 且未傳入 --force (-f) 時，CLI 會在 stderr 提示：
+       「即將覆蓋檔案：...，是否繼續？[y/N] 」並等待 stdin 輸入。
+     - 預設請保留原檔（寫入新檔案，勿加 --in-place）。
+     - 若目標輸出檔已存在，或使用者要求 --in-place 覆蓋原檔，請先向使用者確認是否覆蓋；
+       確認後務必加上 --force (-f) 以非互動方式執行。
+
+PASSWORD & PERMISSION RULES (密碼與權限詳細規則):
+  * 密碼組合行為：
+    - 僅 -p, --open-password <PW>      : 開啟 PDF 需密碼 <PW>，且擁有者密碼自動設為 <PW>。
+    - 僅 --owner-password <PW>         : 開啟 PDF 免密碼（空字串），適合搭配 --read-only 或 --deny 限制檢視者權限。
+    - 同時指定兩者                      : 開啟時輸入 open-password 受權限限制；輸入 owner-password 享完整權限。
+
+  * 權限評估順序：
+    1. 預設允許全部權限 (all)；若指定一或多個 --allow <PERM>（且未指定 --read-only），則白名單僅允許列出的權限。
+    2. 若指定 --read-only (或別名 -ro)，權限設為允許全部並移除 modify 與 assemble
+       （等同 --allow all --deny modify --deny assemble）。
+    3. 最後從目前權限集合中移除所有 --deny <PERM> 指定的項目。
+
+  * 權限值 (PERMISSION) 一覽：
+    - all                : 全部權限
+    - print              : 允許列印文件
+    - high-quality-print : 允許高品質列印
+    - modify             : 允許修改內容
+    - copy               : 允許複製或擷取文字與內容
+    - annotate           : 允許新增或修改註解
+    - fill-forms         : 允許填寫表單欄位
+    - accessibility      : 允許輔助使用需求的內容擷取
+    - assemble           : 允許插入、旋轉、刪除頁面或組合書籤大綱
+
+  * 演算法 (ALGORITHM) 一覽：
+    - aes-256 (預設) : PDF 2.0 AES-256 標準安全處理器（建議新文件使用）
+    - aes-128        : PDF 1.5 AES-128 crypt filter（舊版閱讀器相容性用途）
+    - rc4-128        : PDF 1.4 RC4 128-bit（舊系統相容性用途）
+    - rc4-40         : PDF 1.4 RC4 40-bit（極舊系統相容性用途，不建議新文件使用）
+
+  * 文件資訊 (Metadata) 參數對應：
+    - --doc-title               : Document Info Title / XMP dc:title
+    - --doc-author              : Document Info Author / XMP dc:creator
+    - --doc-subject             : Document Info Subject / XMP pdfencrypt:Subject
+    - --doc-keywords            : Document Info Keywords / XMP pdf:Keywords & dc:subject（逗號或分號分隔）
+    - --doc-description         : Document Info Description / XMP dc:description
+    - --doc-copyright-status    : CopyrightStatus / XMP xmpRights:Marked（常用值：Copyrighted 或 Public Domain）
+    - --doc-copyright-notice    : CopyrightNotice / XMP dc:rights
+    - --doc-copyright-info-url  : CopyrightInfoURL / XMP xmpRights:WebStatement
+
+EXAMPLES (常用加密範例):
+  # 基本開啟密碼加密（預設 aes-256）
+  pdf-encrypt encrypt -i report.pdf -o report_locked.pdf -p "$PDF_OPEN_PASSWORD"
+
+  # 分別設定開啟密碼與擁有者密碼，並設為唯讀
+  pdf-encrypt encrypt -i report.pdf -o report_readonly.pdf \
+    --open-password "$PDF_OPEN_PASSWORD" --owner-password "$PDF_OWNER_PASSWORD" --read-only
+
+  # 免開啟密碼的唯讀 PDF（可用 --read-only 或 -ro）
+  pdf-encrypt encrypt -i report.pdf -o report_readonly.pdf --owner-password "$PDF_OWNER_PASSWORD" -ro
+
+  # 嚴格僅供閱讀（禁止修改、重組頁面、列印、複製）
+  pdf-encrypt encrypt -i report.pdf -o report_view_only.pdf --owner-password "$PDF_OWNER_PASSWORD" \
+    --read-only --deny print --deny high-quality-print --deny copy
+
+  # 僅允許列印與輔助擷取（白名單模式）
+  pdf-encrypt encrypt -i report.pdf -o report_print_only.pdf -p "$PDF_OPEN_PASSWORD" \
+    --allow print --allow high-quality-print --allow accessibility
+
+  # 重新加密已加密的 PDF
+  pdf-encrypt encrypt -i old_locked.pdf -o new_locked.pdf \
+    --input-open-password "$OLD_PASSWORD" -p "$NEW_PASSWORD" --algorithm aes-256
+
+  # 原地加密覆蓋原檔（須經使用者同意後加上 --force 避免互動提示卡住）
+  pdf-encrypt encrypt -i report.pdf -p "$PDF_OPEN_PASSWORD" --in-place --force"#;
+
+const DECRYPT_AFTER_HELP: &str = r#"AI AGENT GUIDELINES FOR DECRYPT (AI 代理常規解密規範):
+  1. 詢問解密密碼 (Ask User for Password):
+     - 若加密 PDF 需要密碼才能開啟，且使用者尚未提供密碼，AI Agent 必須先向使用者詢問 --password (-p)，
+       切勿自行猜測密碼。
+     - 若 PDF 是「免開啟密碼」的權限受限／唯讀文件（即加密時僅設定 --owner-password，開啟密碼為空），
+       可省略 --password（預設為空字串 ""）直接解密並移除權限限制，或傳入擁有者密碼解密。
+
+  2. 保留原始加密檔案 (Preserve Original File):
+     - 未指定 --output (-o) 時，預設輸出至 <原檔名>_decrypted.pdf，不會覆蓋原檔。
+     - 請勿將 --output 設為與 --input 相同的檔案路徑，以免損毀原始檔案。
+
+  3. 錯誤行為與驗證 (Error Behavior & Verification):
+     - 若輸入 PDF 本身並未加密，或密碼錯誤，指令會失敗並回傳非零退出碼 (exit code 1)，且不會寫出錯誤輸出檔。
+     - 成功解密後請檢查 stdout 報表：確認 operation: decrypt、input_encrypted: true、output_encrypted: false，
+       且輸出檔案存在並具有非零大小 (output_size > 0)。
+
+EXAMPLES (常用解密範例):
+  # 使用開啟密碼或擁有者密碼解密 PDF（指定輸出路徑）
+  pdf-encrypt decrypt -i encrypted.pdf -o decrypted.pdf -p "$PDF_PASSWORD"
+
+  # 解密並使用預設輸出檔名（自動輸出至 report_encrypted_decrypted.pdf）
+  pdf-encrypt decrypt -i report_encrypted.pdf -p "$PDF_PASSWORD"
+
+  # 解密免開啟密碼（空密碼）的唯讀／權限受限 PDF
+  pdf-encrypt decrypt -i report_readonly.pdf -o report_unlocked.pdf"#;
+
 /// PDF 加密與解密命令列工具。
 #[derive(Debug, Parser)]
 #[command(
     name = "pdf-encrypt",
     version,
-    about = "PDF 加密與解密工具",
+    about = "PDF 加密、解密、權限設定與 Metadata 更新工具（無外部 PDF 工具依賴）",
     long_about = None,
+    after_help = ROOT_AFTER_HELP,
     subcommand_required = true,
     arg_required_else_help = true
 )]
@@ -30,49 +206,52 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// 將 PDF 加密並寫出新檔案
+    /// 將 PDF 加密、設定檢視權限或更新 Metadata 並寫出檔案（或以 --in-place 覆蓋原檔）
     Encrypt(Box<EncryptArgs>),
-    /// 將已加密 PDF 解密並寫出新檔案
+    /// 將已加密 PDF 解密（移除密碼與權限限制）並寫出新檔案
     Decrypt(DecryptArgs),
 }
 
 #[derive(Debug, Args)]
-#[command(group(
-    ArgGroup::new("encrypt_password")
-        .required(true)
-        .multiple(true)
-        .args(["open_password", "owner_password"])
-))]
+#[command(
+    after_help = ENCRYPT_AFTER_HELP,
+    group(
+        ArgGroup::new("encrypt_password")
+            .required(true)
+            .multiple(true)
+            .args(["open_password", "owner_password"])
+    )
+)]
 struct EncryptArgs {
     /// 輸入 PDF 檔案路徑
     #[arg(short, long, value_name = "FILE")]
     input: PathBuf,
 
-    /// 輸出 PDF 檔案路徑 (預設為 input 加密字尾)
+    /// 輸出 PDF 檔案路徑（預設為 <輸入檔名>_encrypted.pdf；不可與 --in-place 同時使用）
     #[arg(short, long, value_name = "FILE", conflicts_with = "in_place")]
     output: Option<PathBuf>,
 
-    /// 直接加密並覆蓋原輸入檔案；會先寫入暫存檔，成功後才取代原檔
+    /// 直接加密並覆蓋原輸入檔案；會先於同目錄寫入暫存檔，成功後才取代原檔（不可與 --output 同時使用）
     #[arg(long = "in-place", conflicts_with = "output")]
     in_place: bool,
 
-    /// 覆蓋既有檔案時不提示確認
+    /// 覆蓋既有輸出檔或使用 --in-place 時，略過 [y/N] 互動確認提示（非互動環境覆蓋時必加）
     #[arg(short, long)]
     force: bool,
 
-    /// 加密後開啟輸出 PDF 所需的密碼；未指定 --owner-password 時也作為擁有者密碼
+    /// 加密後開啟輸出 PDF 所需的密碼；未指定 --owner-password 時也自動作為擁有者密碼
     #[arg(short = 'p', long, value_name = "PASSWORD")]
     open_password: Option<String>,
 
-    /// 擁有者密碼；未指定 --open-password 時，輸出 PDF 不需要開啟密碼
+    /// 擁有者密碼（完整權限密碼）；未指定 --open-password 時，輸出 PDF 開啟免密碼但套用權限限制
     #[arg(long, value_name = "PASSWORD")]
     owner_password: Option<String>,
 
-    /// 輸入檔若已加密，用此密碼先開啟再重新加密
+    /// 輸入檔若已加密，先用此密碼開啟輸入檔後再重新加密
     #[arg(long, value_name = "PASSWORD")]
     input_open_password: Option<String>,
 
-    /// 將開啟文件後的權限設為 allow all 並 deny modify 與 assemble；也可使用 -ro
+    /// 將開啟文件後的權限設為唯讀（等同 --allow all --deny modify --deny assemble）；亦可使用簡寫 -ro
     #[arg(long = "read-only")]
     read_only: bool,
 
@@ -80,74 +259,79 @@ struct EncryptArgs {
     #[arg(long, value_enum, default_value_t = CliAlgorithm::Aes256)]
     algorithm: CliAlgorithm,
 
-    /// 只允許指定權限；可重複。未指定時預設允許全部權限
+    /// 只允許指定權限（白名單模式，可重複指定）；未指定時預設允許全部權限 (all)
     #[arg(long = "allow", value_enum, value_name = "PERMISSION")]
     allow: Vec<CliPermission>,
 
-    /// 從目前允許權限中移除指定權限；可重複
+    /// 從目前允許權限中移除指定權限（可重複指定；會在 --allow 或 --read-only 之後套用）
     #[arg(long = "deny", value_enum, value_name = "PERMISSION")]
     deny: Vec<CliPermission>,
 
-    /// 文件標題；加密前寫入 Document Info / XMP metadata
+    /// 文件標題；加密前寫入 Document Info (Title) 與 XMP (dc:title)
     #[arg(long = "doc-title", value_name = "TEXT")]
     doc_title: Option<String>,
 
-    /// 文件作者；加密前寫入 Document Info / XMP metadata
+    /// 文件作者；加密前寫入 Document Info (Author) 與 XMP (dc:creator)
     #[arg(long = "doc-author", value_name = "TEXT")]
     doc_author: Option<String>,
 
-    /// 文件主旨；加密前寫入 Document Info / XMP metadata
+    /// 文件主旨；加密前寫入 Document Info (Subject) 與 XMP (pdfencrypt:Subject)
     #[arg(long = "doc-subject", value_name = "TEXT")]
     doc_subject: Option<String>,
 
-    /// 文件關鍵字；加密前寫入 Document Info / XMP metadata
+    /// 文件關鍵字（可以逗號或分號分隔）；加密前寫入 Document Info (Keywords) 與 XMP (pdf:Keywords, dc:subject)
     #[arg(long = "doc-keywords", value_name = "TEXT")]
     doc_keywords: Option<String>,
 
-    /// 文件描述；加密前寫入 Document Info / XMP metadata
+    /// 文件描述；加密前寫入 Document Info (Description) 與 XMP (dc:description)
     #[arg(long = "doc-description", value_name = "TEXT")]
     doc_description: Option<String>,
 
-    /// 文件著作權狀態；加密前寫入 Document Info / XMP metadata
+    /// 文件著作權狀態（如 Copyrighted 或 Public Domain）；加密前寫入 Document Info 與 XMP (xmpRights:Marked)
     #[arg(long = "doc-copyright-status", value_name = "TEXT")]
     doc_copyright_status: Option<String>,
 
-    /// 文件著作權聲明；加密前寫入 Document Info / XMP metadata
+    /// 文件著作權聲明；加密前寫入 Document Info (CopyrightNotice) 與 XMP (dc:rights)
     #[arg(long = "doc-copyright-notice", value_name = "TEXT")]
     doc_copyright_notice: Option<String>,
 
-    /// 文件著作權資訊 URL；加密前寫入 Document Info / XMP metadata
+    /// 文件著作權資訊 URL；加密前寫入 Document Info (CopyrightInfoURL) 與 XMP (xmpRights:WebStatement)
     #[arg(long = "doc-copyright-info-url", value_name = "URL")]
     doc_copyright_info_url: Option<String>,
 
-    /// 不加密 PDF metadata stream
+    /// 不加密 PDF XMP metadata stream（預設會一併加密 metadata）
     #[arg(long = "no-encrypt-metadata")]
     no_encrypt_metadata: bool,
 }
 
 #[derive(Debug, Args)]
+#[command(after_help = DECRYPT_AFTER_HELP)]
 struct DecryptArgs {
-    /// 輸入 PDF 檔案路徑
+    /// 已加密的輸入 PDF 檔案路徑
     #[arg(short, long, value_name = "FILE")]
     input: PathBuf,
 
-    /// 輸出 PDF 檔案路徑 (預設為 input 解密字尾)
+    /// 解密後輸出 PDF 檔案路徑（預設為 <輸入檔名>_decrypted.pdf）
     #[arg(short, long, value_name = "FILE")]
     output: Option<PathBuf>,
 
-    /// 使用者或擁有者密碼；未指定時使用空密碼
+    /// 使用者開啟密碼或擁有者密碼；未指定時預設使用空密碼 ""（適用於免開啟密碼之唯讀 PDF）
     #[arg(short = 'p', long, default_value = "", value_name = "PASSWORD")]
     password: String,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum CliAlgorithm {
+    /// PDF 2.0 AES-256 標準安全處理器（預設，建議新文件使用）
     #[value(name = "aes-256")]
     Aes256,
+    /// PDF 1.5 AES-128 crypt filter（適合較舊 PDF reader 相容性）
     #[value(name = "aes-128")]
     Aes128,
+    /// PDF 1.4 RC4 128-bit（相容性用途）
     #[value(name = "rc4-128")]
     Rc4Bit128,
+    /// PDF 1.4 RC4 40-bit（舊系統相容性用途，不建議用於新文件）
     #[value(name = "rc4-40")]
     Rc4Bit40,
 }
@@ -746,5 +930,54 @@ mod tests {
         let result = Cli::try_parse_from(["pdf-encrypt", "encrypt", "--input", "input.pdf"]);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn root_short_and_long_help_are_self_contained_for_ai_agents() {
+        for flag in ["-h", "--help"] {
+            let err = parse_cli_from(["pdf-encrypt", flag]).unwrap_err();
+            let rendered = err.to_string();
+
+            assert!(rendered.contains("AI AGENT GUIDELINES"));
+            assert!(rendered.contains("QUICK REFERENCE"));
+            assert!(rendered.contains("COMMON EXAMPLES"));
+            assert!(rendered.contains("OUTPUT REPORT"));
+            assert!(rendered.contains("--open-password"));
+            assert!(rendered.contains("--owner-password"));
+            assert!(rendered.contains("--force"));
+            assert!(rendered.contains("pdf-encrypt encrypt"));
+            assert!(rendered.contains("pdf-encrypt decrypt"));
+        }
+    }
+
+    #[test]
+    fn encrypt_short_and_long_help_are_self_contained_for_ai_agents() {
+        for flag in ["-h", "--help"] {
+            let err = parse_cli_from(["pdf-encrypt", "encrypt", flag]).unwrap_err();
+            let rendered = err.to_string();
+
+            assert!(rendered.contains("AI AGENT GUIDELINES FOR ENCRYPT"));
+            assert!(rendered.contains("PASSWORD & PERMISSION RULES"));
+            assert!(rendered.contains("EXAMPLES"));
+            assert!(rendered.contains("--input-open-password"));
+            assert!(rendered.contains("--read-only"));
+            assert!(rendered.contains("-ro"));
+            assert!(rendered.contains("--in-place"));
+            assert!(rendered.contains("--force"));
+        }
+    }
+
+    #[test]
+    fn decrypt_short_and_long_help_are_self_contained_for_ai_agents() {
+        for flag in ["-h", "--help"] {
+            let err = parse_cli_from(["pdf-encrypt", "decrypt", flag]).unwrap_err();
+            let rendered = err.to_string();
+
+            assert!(rendered.contains("AI AGENT GUIDELINES FOR DECRYPT"));
+            assert!(rendered.contains("EXAMPLES"));
+            assert!(rendered.contains("--password"));
+            assert!(rendered.contains("_decrypted.pdf"));
+            assert!(rendered.contains("output_encrypted: false"));
+        }
     }
 }
