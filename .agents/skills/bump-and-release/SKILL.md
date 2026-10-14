@@ -46,6 +46,7 @@ description: 為 pdf-encrypt 專案提升版本，透過既有 GitHub Actions �
 2. 記錄發行提交 SHA。現有 `Release` 工作流程會在推送 `main` 後，以 `Cargo.toml` 版本發布尚不存在的 Release。標準發行只推送該提交至 `main`，讓工作流程建立標籤與資產；同一版本不要再推送標籤或額外 dispatch，以免重複觸發。若流程已變更，依目前設定選擇單一觸發方式。
 3. 推送前確認已授權發布該版本及變更範圍。使用者已明確要求本次發行時直接進行；只授權本機準備時，先提供版本、提交、檢查結果及推送會發布的內容，再取得缺少的授權。
 4. 由 CI 處理 GitHub Release、安裝程式、封裝與 crates.io 發布。一般發行不另行執行 `gh release create` 或 `cargo publish`。crates.io 使用 `crates-io` environment 的 OIDC Trusted Publishing，由認證 action 取得短期 token，不使用長期 GitHub secret。認證失敗須處理 Trusted Publisher 設定，不能略過或據此聲稱 crate 已發布。首次啟用及設定值參閱 [Trusted Publishing 設定](../../../docs/trusted-publishing.md)。
+5. npm 套件 `@willh/pdf-encrypt` 及 6 個平台套件由 `publish-npm` job 發布，版本取自 Release 標籤，`npm/` 目錄沒有需要同步的版本字串。該 job 使用 `npm` environment，優先使用 OIDC Trusted Publishing，`NPM_TOKEN` secret 為備援；registry 已有相同版本時略過。若要回報 npm 已發布，以 `npm view @willh/pdf-encrypt version` 查證。設定方式參閱 [npm 發布](../../../docs/npm-publishing.md)。
 
 * * *
 

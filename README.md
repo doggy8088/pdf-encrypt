@@ -19,7 +19,53 @@
 
 ## 安裝
 
-### 前置需求
+### 安裝指令稿（macOS、Linux）
+
+不需要 Rust 開發環境。指令稿會從 GitHub Releases 下載對應平台的執行檔，驗證 SHA-256 後安裝到 `~/.local/bin/pdf-encrypt`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/doggy8088/pdf-encrypt/main/install.sh | sh
+```
+
+指定版本或安裝目錄：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/doggy8088/pdf-encrypt/main/install.sh | sh -s -- --version 0.3.0 --to ~/bin
+```
+
+也可以用環境變數 `PDF_ENCRYPT_VERSION` 與 `PDF_ENCRYPT_INSTALL_DIR` 設定。若安裝目錄不在 `PATH`，指令稿會提示要加入 shell 設定檔的內容。Linux 使用靜態連結的 musl 版本，glibc 與 musl 發行版皆可執行。
+
+### 安裝指令稿（Windows）
+
+在 PowerShell 執行，會安裝到 `%LOCALAPPDATA%\Programs\pdf-encrypt\bin`，並將該目錄加入使用者 `PATH`：
+
+```powershell
+irm https://raw.githubusercontent.com/doggy8088/pdf-encrypt/main/install.ps1 | iex
+```
+
+指定版本或安裝目錄：
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/doggy8088/pdf-encrypt/main/install.ps1))) -Version 0.3.0 -InstallDir C:\Tools\pdf-encrypt
+```
+
+也可以用環境變數 `PDF_ENCRYPT_VERSION`、`PDF_ENCRYPT_INSTALL_DIR` 設定；設定 `PDF_ENCRYPT_NO_MODIFY_PATH=1` 時不修改 `PATH`。
+
+### npm
+
+已安裝 Node.js 18 以上版本時，可透過 npm 安裝。npm 只會下載符合目前作業系統與 CPU 的預先編譯執行檔，安裝時不執行 postinstall 指令稿：
+
+```bash
+npm install -g @willh/pdf-encrypt
+```
+
+不安裝直接執行：
+
+```bash
+npx @willh/pdf-encrypt --help
+```
+
+### 從原始碼安裝的前置需求
 
 請先安裝 [Rust 開發工具鏈](https://www.rust-lang.org/tools/install)，確認終端機可以使用 `cargo`：
 
@@ -64,11 +110,20 @@ cargo build --release --locked
 
 ### 移除安裝
 
-若是透過 `cargo install` 安裝，可用下列指令移除：
+依安裝方式移除：
 
 ```bash
+# cargo install
 cargo uninstall pdf-encrypt
+
+# npm
+npm uninstall -g @willh/pdf-encrypt
+
+# install.sh（預設位置）
+rm ~/.local/bin/pdf-encrypt
 ```
+
+透過 `install.ps1` 安裝時，刪除 `%LOCALAPPDATA%\Programs\pdf-encrypt` 目錄，並從使用者 `PATH` 移除 `%LOCALAPPDATA%\Programs\pdf-encrypt\bin`。
 
 ## 使用方式
 
