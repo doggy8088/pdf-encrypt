@@ -48,6 +48,26 @@ jobs:
       - name: Build
         run: cargo build --locked
 
+  site:
+    name: Website command builder
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --locked --release
+
+      - name: Test generated commands against the binary
+        env:
+          PDF_ENCRYPT_BIN: ${{ github.workspace }}/target/release/pdf-encrypt
+        run: node --test tests/site/*.test.mjs
+
   installers:
     name: Installers (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

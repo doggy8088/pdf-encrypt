@@ -15,6 +15,8 @@
 - 加密前可用 `--doc-*` 參數更新 PDF Document Info / XMP metadata。
 - 可用 `--in-place` 直接加密並覆蓋原輸入檔案，並可用 `--force` 略過覆蓋確認。
 
+網站：<https://pdf-encrypt.gh.miniasp.com/>（安裝方式、指令產生器與常見問題）
+
 > 注意：PDF 權限是 PDF reader 應遵守的限制，不等同於無法被破解的存取控制。真正保護內容機密性的是加密密碼本身。
 
 ## 安裝
@@ -404,3 +406,26 @@ cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
+
+## 網站
+
+`public/` 是 <https://pdf-encrypt.gh.miniasp.com/> 的靜態網站，沒有建置步驟。推送到 `main` 且 `public/` 有變更時，`deploy-pages.yml` 會部署到 GitHub Pages。
+
+- `public/index.html`：單頁網站，含安裝方式、情境範例、指令產生器與常見問題。
+- `public/js/command-builder.js`：產生指令的純邏輯，不存取 DOM；`public/js/app.js` 負責頁面互動。
+- `public/img/`：以 AI 生成的插圖與物件圖片。
+
+本機預覽（網站使用根目錄絕對路徑，請以 `public/` 為根目錄啟動）：
+
+```bash
+python3 -m http.server 8000 --directory public
+```
+
+測試指令產生器；設定 `PDF_ENCRYPT_BIN` 時，會實際執行產生的 bash 指令：
+
+```bash
+cargo build --release --locked
+PDF_ENCRYPT_BIN="$PWD/target/release/pdf-encrypt" node --test tests/site/*.test.mjs
+```
+
+指令產生器只在瀏覽器中組出文字，不會上傳檔案或儲存密碼；密碼預設以執行時輸入的環境變數傳遞。`Read-Host -MaskInput` 需要 PowerShell 7.1 以上。

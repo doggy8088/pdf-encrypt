@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    (function () {
+      var theme = null;
+      try { theme = localStorage.getItem("pdf-encrypt-theme"); } catch (error) { theme = null; }
+      if (theme !== "light" && theme !== "dark") {
+        theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      document.documentElement.setAttribute("data-theme", theme);
+      document.documentElement.classList.add("js");
+      setTimeout(function () {
+        if (!document.documentElement.classList.contains("app-ready")) {
+          document.documentElement.classList.add("reveal-all");
+        }
+      }, 2500);
+    })();
+  </script>
+  <title>pdf-encrypt｜替 PDF 加密、解密與編輯文件屬性的命令列工具</title>
+  <meta name="description" content="pdf-encrypt 是開源的 PDF 命令列工具，以 AES-256 加密與解密 PDF、設定列印與複製權限，並讀寫文件屬性。支援 macOS、Linux、Windows，可用 npm、Cargo 或安裝指令稿安裝。">
+  <meta name="robots" content="index, follow">
+  <meta name="author" content="Will 保哥">
+  <meta name="theme-color" content="#1d1c1a">
+  <link rel="canonical" href="https://pdf-encrypt.gh.miniasp.com/">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="pdf-encrypt">
+  <meta property="og:locale" content="zh_TW">
+  <meta property="og:title" content="pdf-encrypt｜替 PDF 蓋上一枚加密印章">
+  <meta property="og:description" content="開源 PDF 命令列工具：AES-256 加密與解密、檢視權限設定、文件屬性讀寫。單一執行檔，不依賴外部 PDF 工具。">
+  <meta property="og:url" content="https://pdf-encrypt.gh.miniasp.com/">
+  <meta property="og:image" content="https://pdf-encrypt.gh.miniasp.com/og-image.jpg">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1216">
+  <meta property="og:image:height" content="640">
+  <meta property="og:image:alt" content="pdf-encrypt 社群分享圖：紙張背景上的 pdf-encrypt 標題、Seal your PDFs from the command line 標語，以及蓋有朱紅鑰匙孔印章的文件。">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="pdf-encrypt｜替 PDF 蓋上一枚加密印章">
+  <meta name="twitter:description" content="開源 PDF 命令列工具：AES-256 加密與解密、檢視權限設定、文件屬性讀寫。">
+  <meta name="twitter:image" content="https://pdf-encrypt.gh.miniasp.com/og-image.jpg">
+  <meta name="twitter:image:alt" content="pdf-encrypt 社群分享圖：pdf-encrypt 標題與蓋有朱紅鑰匙孔印章的文件。">
+
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="icon" href="/favicon-16x16.png" type="image/png" sizes="16x16">
+  <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32">
+  <link rel="icon" href="/favicon-48x48.png" type="image/png" sizes="48x48">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180">
+  <link rel="manifest" href="/site.webmanifest">
+
+  <link rel="preconnect" href="https://api.fontshare.com">
+  <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
+  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,700&display=swap">
+  <link rel="stylesheet" href="/css/styles.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "pdf-encrypt",
+    "alternateName": "@willh/pdf-encrypt",
+    "description": "開源的 PDF 命令列工具，用來加密、解密 PDF、設定檢視權限，並讀寫文件屬性。",
+    "url": "https://pdf-encrypt.gh.miniasp.com/",
+    "image": "https://pdf-encrypt.gh.miniasp.com/og-image.jpg",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "macOS, Linux, Windows",
+    "inLanguage": "zh-Hant-TW",
+    "license": "https://opensource.org/license/mit",
+    "downloadUrl": "https://github.com/doggy8088/pdf-encrypt/releases/latest",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "TWD" },
+    "author": {
+      "@type": "Person",
+      "name": "Will 保哥",
+      "url": "https://www.facebook.com/will.fans/",
+      "sameAs": ["https://www.facebook.com/will.fans/", "https://github.com/doggy8088"]
+    }
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要內容</a>
+
+  <div class="hero-field">
+    <header class="topbar">
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="切換為深色主題">深色</button>
+      <a class="wordmark" href="/" aria-label="pdf-encrypt 首頁">
+        <svg class="seal-mark" viewBox="0 0 40 40" aria-hidden="true"><use href="#seal"/></svg>
+        <span>pdf-encrypt</span>
+      </a>
+      <a class="topbar-link" href="https://github.com/doggy8088/pdf-encrypt" target="_blank" rel="noopener noreferrer">GitHub</a>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <section class="hero" aria-labelledby="hero-title">
+        <svg class="hero-seal" viewBox="0 0 40 40" aria-hidden="true"><use href="#seal"/></svg>
+        <div class="hero-copy">
+          <h1 id="hero-title" class="reveal">pdf-encrypt</h1>
+          <p class="hero-statement reveal">替 PDF 蓋上一枚加密印章。加密、解密、檢視權限與文件屬性，一個命令列工具全包。</p>
+          <a class="button hero-action reveal" href="#install">安裝 pdf-encrypt</a>
+        </div>
+      </section>
+
+      <nav class="folders" aria-label="章節">
+        <a class="folder folder-faq" href="#faq"><span class="folder-tab">常見問題</span><span class="folder-summary">權限、隱私、忘記密碼、原檔與平台</span></a>
+        <a class="folder folder-reference" href="#reference"><span class="folder-tab">演算法與權限</span><span class="folder-summary">四種演算法、八種權限、三種密碼組合</span></a>
+        <a class="folder folder-features" href="#features"><span class="folder-tab">功能</span><span class="folder-summary">加密、權限、重新加密、文件屬性</span></a>
+        <a class="folder folder-builder" href="#builder"><span class="folder-tab">指令產生器</span><span class="folder-summary">勾選選項，產生 bash 或 PowerShell 指令</span></a>
+      </nav>
+
+      <section id="install" class="folder-front" aria-labelledby="install-title">
+        <span class="folder-tab folder-tab-front" aria-hidden="true"></span>
+        <div class="install-inner">
+          <div class="install-head">
+            <h2 id="install-title" class="reveal">一行裝好</h2>
+            <p class="reveal">單一執行檔，不需要 Rust、Python 或任何 PDF 函式庫。支援 macOS、Linux、Windows 的 x64 與 ARM64。</p>
+            <a class="button reveal" href="#builder">組合加密指令</a>
+          </div>
+
+          <div class="tabs reveal" data-tabs>
+            <div class="tab-list" role="tablist" aria-label="安裝方式">
+              <button type="button" role="tab" id="tab-unix" aria-controls="panel-unix" aria-selected="true">macOS / Linux</button>
+              <button type="button" role="tab" id="tab-windows" aria-controls="panel-windows" aria-selected="false" tabindex="-1">Windows</button>
+              <button type="button" role="tab" id="tab-npm" aria-controls="panel-npm" aria-selected="false" tabindex="-1">npm</button>
+              <button type="button" role="tab" id="tab-cargo" aria-controls="panel-cargo" aria-selected="false" tabindex="-1">Cargo</button>
+              <button type="button" role="tab" id="tab-packages" aria-controls="panel-packages" aria-selected="false" tabindex="-1">安裝檔</button>
+            </div>
+
+            <div class="tab-panel" role="tabpanel" id="panel-unix" aria-labelledby="tab-unix" tabindex="0">
+              <div class="snippet">
+                <pre class="code-block"><code>curl -fsSL https://raw.githubusercontent.com/doggy8088/pdf-encrypt/main/install.sh | sh</code></pre>
+                <button type="button" class="copy-button" data-copy="curl -fsSL https://raw.githubusercontent.com/doggy8088/pdf-encrypt/main/install.sh | sh">複製</button>
+              </div>
+              <p>下載對應平台的執行檔、驗證 SHA-256，再安裝到 <code>~/.local/bin</code>。指定版本與目錄：<code>| sh -s -- --version 0.3.1 --to ~/bin</code>。</p>
+            </div>
+
+            <div class="tab-panel" role="tabpanel" id="panel-windows" aria-labelledby="tab-windows" tabindex="0" hidden>
+              <div class="snippet">
+                <pre class="code-block"><code>irm https://raw.githubusercontent.com/doggy8088/pdf-encrypt/main/install.ps1 | iex</code></pre>
+                <button type="button" class="copy-button" data-copy="irm https://raw.githubusercontent.com/doggy8088/pdf-encrypt/main/install.ps1 | iex">複製</button>
+              </div>
+              <p>在 PowerShell 執行。安裝到 <code>%LOCALAPPDATA%\Programs\pdf-encrypt\bin</code>，並把該目錄加入使用者 <code>PATH</code>。</p>
+            </div>
+
+            <div class="tab-panel" role="tabpanel" id="panel-npm" aria-labelledby="tab-npm" tabindex="0" hidden>
+              <div class="snippet">
+                <pre class="code-block"><code>npm install -g @willh/pdf-encrypt</code></pre>
+                <button type="button" class="copy-button" data-copy="npm install -g @willh/pdf-encrypt">複製</button>
+              </div>
+              <p>需要 Node.js 18 以上。npm 只下載符合目前平台的執行檔，不執行 postinstall。不安裝直接試用：<code>npx @willh/pdf-encrypt --help</code>。</p>
+            </div>
+
+            <div class="tab-panel" role="tabpanel" id="panel-cargo" aria-labelledby="tab-cargo" tabindex="0" hidden>
+              <div class="snippet">
+                <pre class="code-block"><code>cargo install pdf-encrypt --locked</code></pre>
+                <button type="button" class="copy-button" data-copy="cargo install pdf-encrypt --locked">複製</button>
+              </div>
+              <p>已安裝 Rust 工具鏈時，從 crates.io 編譯安裝。</p>
+            </div>
+
+            <div class="tab-panel" role="tabpanel" id="panel-packages" aria-labelledby="tab-packages" tabindex="0" hidden>
+              <ul class="download-list">
+                <li><a href="https://github.com/doggy8088/pdf-encrypt/releases/latest/download/pdf-encrypt-x86_64-pc-windows-msvc.msi">Windows x64 安裝程式 (.msi)</a></li>
+                <li><a href="https://github.com/doggy8088/pdf-encrypt/releases/latest/download/pdf-encrypt-aarch64-apple-darwin.pkg">macOS Apple 晶片 (.pkg)</a></li>
+                <li><a href="https://github.com/doggy8088/pdf-encrypt/releases/latest/download/pdf-encrypt-x86_64-apple-darwin.pkg">macOS Intel (.pkg)</a></li>
+                <li><a href="https://github.com/doggy8088/pdf-encrypt/releases/latest" target="_blank" rel="noopener noreferrer">Debian、Fedora 套件與壓縮檔 (.deb、.rpm)</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <section class="stages" aria-labelledby="stages-title">
+    <h2 id="stages-title" class="reveal">三步蓋好印章</h2>
+    <ol class="stage-bar" data-ui>
+      <li class="stage stage-install reveal">
+        <span class="stage-time">幾秒鐘</span>
+        <span class="stage-text">先用一行指令裝好單一執行檔。</span>
+      </li>
+      <li class="stage stage-compose reveal">
+        <span class="stage-time">約一分鐘</span>
+        <span class="stage-text">接著選好密碼、權限與演算法，組出指令。</span>
+      </li>
+      <li class="stage stage-run reveal">
+        <span class="stage-time">不到一秒</span>
+        <span class="stage-text">最後執行，寫出加密後的 PDF。</span>
+      </li>
+    </ol>
+    <p class="stages-note reveal">實測：61 頁、3.5 MB 的 PDF 以 AES-256 加密耗時 0.52 秒；安裝指令稿在一般網路下約 4 秒完成。</p>
+  </section>
+
+  <section class="showcase" id="scenarios" aria-labelledby="scenarios-title">
+    <div class="showcase-index">
+      <h2 id="scenarios-title" class="showcase-heading reveal">五種常見情境</h2>
+      <ul class="scenario-list" role="list">
+        <li><button type="button" class="scenario reveal" data-scenario="protect" aria-pressed="true">設定開啟密碼</button></li>
+        <li><button type="button" class="scenario reveal" data-scenario="readonly" aria-pressed="false">唯讀分享</button></li>
+        <li><button type="button" class="scenario reveal" data-scenario="decrypt" aria-pressed="false">移除密碼</button></li>
+        <li><button type="button" class="scenario reveal" data-scenario="info" aria-pressed="false">讀取文件屬性</button></li>
+        <li><button type="button" class="scenario reveal" data-scenario="rekey" aria-pressed="false">更換密碼</button></li>
+      </ul>
+    </div>
+
+    <div class="showcase-stage">
+      <div class="stage-art">
+      <svg class="stage-seal" viewBox="0 0 40 40" aria-hidden="true"><use href="#seal-plain"/></svg>
+      <div class="terminals">
+        <figure class="terminal is-on" data-ui data-for="protect" aria-label="設定開啟密碼的終端機輸出">
+          <pre><code><span class="t-prompt">$</span> pdf-encrypt encrypt -i report.pdf -p "$PDF_OPEN_PASSWORD"
+已完成加密：report_encrypted.pdf
+operation: encrypt
+algorithm: aes-256
+input_encrypted: false
+output_encrypted: true
+pages: 61</code></pre>
+        </figure>
+        <figure class="terminal" data-ui data-for="readonly" aria-label="唯讀分享的終端機輸出">
+          <pre><code><span class="t-prompt">$</span> pdf-encrypt encrypt -i report.pdf \
+    -o report_readonly.pdf \
+    --owner-password "$PDF_OWNER_PASSWORD" --read-only
+已完成加密：report_readonly.pdf
+operation: encrypt
+algorithm: aes-256
+output_encrypted: true
+pages: 61</code></pre>
+        </figure>
+        <figure class="terminal" data-ui data-for="decrypt" aria-label="移除密碼的終端機輸出">
+          <pre><code><span class="t-prompt">$</span> pdf-encrypt decrypt -i report_encrypted.pdf -p "$PDF_PASSWORD"
+已完成解密：report_encrypted_decrypted.pdf
+operation: decrypt
+input_encrypted: true
+output_encrypted: false
+pages: 61</code></pre>
+        </figure>
+        <figure class="terminal" data-ui data-for="info" aria-label="讀取文件屬性的終端機輸出">
+          <pre><code><span class="t-prompt">$</span> pdf-encrypt info -i annual_encrypted.pdf -p "$PDF_PASSWORD" --json
+{
+  "document_info": {
+    "author": "Will 保哥",
+    "keywords": "PDF, 加密",
+    "title": "年度報告"
+  },
+  "input_encrypted": true,
+  "pages": 61,
+  "pdf_version": "2.0"
+}</code></pre>
+        </figure>
+        <figure class="terminal" data-ui data-for="rekey" aria-label="更換密碼的終端機輸出">
+          <pre><code><span class="t-prompt">$</span> pdf-encrypt encrypt -i report_encrypted.pdf \
+    -o report_rekeyed.pdf --algorithm aes-128 \
+    --input-open-password "$PDF_PASSWORD" -p "$PDF_OPEN_PASSWORD"
+已完成加密：report_rekeyed.pdf
+algorithm: aes-128
+input_encrypted: true
+output_encrypted: true</code></pre>
+        </figure>
+      </div>
+      </div>
+      <p class="scenario-fact" id="scenario-fact" aria-live="polite">原檔保留，另存為 report_encrypted.pdf；擁有者密碼自動與開啟密碼相同。</p>
+      <button type="button" class="text-action" id="scenario-to-builder">在指令產生器中開啟這個情境</button>
+    </div>
+  </section>
+
+  <section id="builder" class="builder-section" aria-labelledby="builder-title">
+    <div class="builder-head">
+      <h2 id="builder-title" class="reveal">組合你的指令</h2>
+      <p class="reveal">勾選需要的選項，產生可直接貼到終端機的指令。一切都在瀏覽器裡完成，不會上傳檔案，也不會儲存密碼。</p>
+    </div>
+
+    <div class="builder">
+      <form class="builder-form" id="builder-form" novalidate>
+        <fieldset>
+          <legend>操作</legend>
+          <div class="segmented">
+            <label><input type="radio" name="command" value="encrypt" checked> 加密</label>
+            <label><input type="radio" name="command" value="decrypt"> 解密</label>
+            <label><input type="radio" name="command" value="info"> 讀取屬性</label>
+            <label><input type="radio" name="command" value="edit"> 編輯屬性</label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>終端機</legend>
+          <div class="segmented">
+            <label><input type="radio" name="shell" value="bash" checked> bash / zsh</label>
+            <label><input type="radio" name="shell" value="powershell"> PowerShell</label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>檔案</legend>
+          <div class="field">
+            <label for="f-input">輸入 PDF</label>
+            <input type="text" id="f-input" name="input" value="report.pdf" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field" data-show-for="encrypt decrypt edit">
+            <label for="f-output">輸出 PDF（選填）</label>
+            <input type="text" id="f-output" name="output" autocomplete="off" spellcheck="false" placeholder="未填時自動命名">
+          </div>
+          <div class="checks" data-show-for="encrypt edit">
+            <label><input type="checkbox" name="inPlace"> 原地修改，取代原檔</label>
+            <label><input type="checkbox" name="force"> 略過覆蓋確認（<code>--force</code>）</label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>密碼</legend>
+          <div class="segmented">
+            <label><input type="radio" name="passwordMode" value="env" checked> 執行時輸入（建議）</label>
+            <label><input type="radio" name="passwordMode" value="literal"> 寫在指令中</label>
+          </div>
+          <p class="hint" data-show-mode="env">指令會先以不顯示字元的方式詢問密碼並存進環境變數，密碼不會留在 shell 歷史紀錄。</p>
+
+          <div class="password-row" data-show-for="encrypt">
+            <label><input type="checkbox" name="useOpenPassword" checked> 開啟密碼</label>
+            <input type="password" name="openPassword" aria-label="開啟密碼" autocomplete="new-password" data-show-mode="literal">
+          </div>
+          <div class="password-row" data-show-for="encrypt">
+            <label><input type="checkbox" name="useOwnerPassword"> 擁有者密碼</label>
+            <input type="password" name="ownerPassword" aria-label="擁有者密碼" autocomplete="new-password" data-show-mode="literal">
+          </div>
+          <div class="password-row">
+            <label><input type="checkbox" name="useInputPassword"> <span id="input-password-label">輸入檔已加密</span></label>
+            <input type="password" name="inputPassword" aria-label="目前的 PDF 密碼" autocomplete="off" data-show-mode="literal">
+          </div>
+        </fieldset>
+
+        <fieldset data-show-for="encrypt">
+          <legend>加密與權限</legend>
+          <div class="field">
+            <label for="f-algorithm">演算法</label>
+            <select id="f-algorithm" name="algorithm">
+              <option value="aes-256">AES-256（預設，建議）</option>
+              <option value="aes-128">AES-128（相容較舊 reader）</option>
+              <option value="rc4-128">RC4 128-bit（舊系統相容）</option>
+              <option value="rc4-40">RC4 40-bit（不建議）</option>
+            </select>
+          </div>
+          <div class="segmented">
+            <label><input type="radio" name="permissionMode" value="all" checked> 全部允許</label>
+            <label><input type="radio" name="permissionMode" value="read-only"> 唯讀</label>
+            <label><input type="radio" name="permissionMode" value="custom"> 自訂</label>
+          </div>
+          <p class="hint" data-show-permission="read-only">唯讀等於允許全部權限，再禁止修改內容與組合頁面。</p>
+          <div class="permission-grid" data-show-permission="custom" role="group" aria-label="允許的權限">
+            <label><input type="checkbox" name="allowed" value="print" checked> 列印</label>
+            <label><input type="checkbox" name="allowed" value="high-quality-print" checked> 高品質列印</label>
+            <label><input type="checkbox" name="allowed" value="modify" checked> 修改內容</label>
+            <label><input type="checkbox" name="allowed" value="copy" checked> 複製內容</label>
+            <label><input type="checkbox" name="allowed" value="annotate" checked> 註解</label>
+            <label><input type="checkbox" name="allowed" value="fill-forms" checked> 填寫表單</label>
+            <label><input type="checkbox" name="allowed" value="accessibility" checked> 輔助使用擷取</label>
+            <label><input type="checkbox" name="allowed" value="assemble" checked> 組合頁面</label>
+          </div>
+          <div class="checks">
+            <label><input type="checkbox" name="encryptMetadata" checked> 一併加密 XMP metadata</label>
+          </div>
+        </fieldset>
+
+        <fieldset data-show-for="encrypt edit">
+          <legend>文件屬性</legend>
+          <p class="hint">勾選要寫入的欄位；勾選但留空會清空該欄位。</p>
+          <div class="metadata-grid">
+            <div class="metadata-row"><label><input type="checkbox" name="meta-on" value="title"> 標題</label><input type="text" name="meta" data-key="title" aria-label="標題" autocomplete="off"></div>
+            <div class="metadata-row"><label><input type="checkbox" name="meta-on" value="author"> 作者</label><input type="text" name="meta" data-key="author" aria-label="作者" autocomplete="off"></div>
+            <div class="metadata-row"><label><input type="checkbox" name="meta-on" value="subject"> 主旨</label><input type="text" name="meta" data-key="subject" aria-label="主旨" autocomplete="off"></div>
+            <div class="metadata-row"><label><input type="checkbox" name="meta-on" value="keywords"> 關鍵字</label><input type="text" name="meta" data-key="keywords" aria-label="關鍵字" autocomplete="off"></div>
+            <div class="metadata-row"><label><input type="checkbox" name="meta-on" value="description"> 描述</label><input type="text" name="meta" data-key="description" aria-label="描述" autocomplete="off"></div>
+            <div class="metadata-row"><label><input type="checkbox" name="meta-on" value="copyrightStatus"> 著作權狀態</label><input type="text" name="meta" data-key="copyrightStatus" aria-label="著作權狀態" autocomplete="off" placeholder="Copyrighted"></div>
+            <div class="metadata-row"><label><input type="checkbox" name="meta-on" value="copyrightNotice"> 著作權聲明</label><input type="text" name="meta" data-key="copyrightNotice" aria-label="著作權聲明" autocomplete="off"></div>
+            <div class="metadata-row"><label><input type="checkbox" name="meta-on" value="copyrightInfoUrl"> 著作權資訊 URL</label><input type="url" name="meta" data-key="copyrightInfoUrl" aria-label="著作權資訊 URL" autocomplete="off"></div>
+          </div>
+        </fieldset>
+
+        <fieldset data-show-for="info">
+          <legend>輸出格式</legend>
+          <div class="checks">
+            <label><input type="checkbox" name="json" checked> 輸出 JSON（<code>--json</code>）</label>
+          </div>
+        </fieldset>
+      </form>
+
+      <aside class="builder-output" aria-labelledby="output-title">
+        <div class="output-sticky">
+          <div class="output-head">
+            <h3 id="output-title">產生的指令</h3>
+            <button type="button" class="button button-small" id="copy-command">複製指令</button>
+          </div>
+          <pre class="code-block output-code" id="command-output" tabindex="0" aria-label="產生的指令"><code>pdf-encrypt encrypt --input report.pdf --open-password "$PDF_OPEN_PASSWORD"</code></pre>
+          <ul class="messages" id="command-messages"></ul>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <section id="features" class="features" aria-labelledby="features-title">
+    <div class="features-head">
+      <h2 id="features-title" class="reveal">一個工具，六件事</h2>
+      <p class="reveal">每一件都能單獨使用，也能在同一個指令裡一起完成。</p>
+    </div>
+    <ul class="specimens" role="list">
+      <li class="specimen reveal">
+        <div class="specimen-tile tile-seal"><img src="/img/specimens/padlock.webp" width="494" height="600" alt="一把闔上的黃銅掛鎖。" loading="lazy"></div>
+        <h3>預設 AES-256</h3>
+        <p>PDF 2.0 標準安全處理器；需要相容舊版 reader 時可改用 AES-128 或 RC4。</p>
+      </li>
+      <li class="specimen specimen-wide reveal">
+        <div class="specimen-tile tile-ink"><img src="/img/specimens/keyring.webp" width="500" height="600" alt="一個串著多把不同鑰匙的鋼製鑰匙圈。" loading="lazy"></div>
+        <h3>八種檢視權限</h3>
+        <p>列印、複製、修改、註解、填表、組合頁面等逐項允許或禁止，或用 <code>--read-only</code> 一次設為唯讀。</p>
+      </li>
+      <li class="specimen reveal">
+        <div class="specimen-tile tile-stone"><img src="/img/specimens/two-keys.webp" width="399" height="600" alt="一把舊的青銅鑰匙與一把新的鋼製鑰匙並排。" loading="lazy"></div>
+        <h3>重新加密</h3>
+        <p>以舊密碼開啟已加密的 PDF，直接換成新密碼或新演算法。</p>
+      </li>
+      <li class="specimen reveal">
+        <div class="specimen-tile tile-seal"><img src="/img/specimens/index-card.webp" width="429" height="600" alt="一疊帶有分隔標籤的圖書館索引卡。" loading="lazy"></div>
+        <h3>讀寫文件屬性</h3>
+        <p><code>info --json</code> 讀取 Document Info 與 XMP；<code>edit</code> 只改指定欄位，保留既有加密。</p>
+      </li>
+      <li class="specimen reveal">
+        <div class="specimen-tile tile-ink"><img src="/img/specimens/seal-stamp.webp" width="521" height="600" alt="一支底部沾著朱紅印泥的木柄方形印章。" loading="lazy"></div>
+        <h3>單一執行檔</h3>
+        <p>以 Rust 與 <code>lopdf</code> 直接讀寫 PDF，不呼叫 qpdf、Ghostscript 或 pdftk。</p>
+      </li>
+      <li class="specimen specimen-wide reveal">
+        <div class="specimen-tile tile-stone"><img src="/img/specimens/metronome.webp" width="473" height="600" alt="一座木製金字塔形節拍器。" loading="lazy"></div>
+        <h3>適合 AI 代理與 CI</h3>
+        <p>JSON 輸出、明確的結束碼與 <code>--force</code> 非互動模式，並附 <a href="https://github.com/doggy8088/pdf-encrypt/tree/main/skills/pdf-encrypt" target="_blank" rel="noopener noreferrer">Agent Skill</a>。</p>
+      </li>
+    </ul>
+  </section>
+
+  <section id="reference" class="reference" aria-labelledby="reference-title">
+    <div class="reference-list">
+      <h2 id="reference-title" class="reveal">演算法與權限</h2>
+      <h3 class="ref-group">演算法</h3>
+      <ul class="rows" role="list">
+        <li class="row"><span class="row-name"><code>aes-256</code> 預設，新文件建議使用</span><span class="row-value">PDF 2.0</span></li>
+        <li class="row"><span class="row-name"><code>aes-128</code> 相容較舊的 PDF reader</span><span class="row-value">PDF 1.5</span></li>
+        <li class="row"><span class="row-name"><code>rc4-128</code> 舊系統相容用途</span><span class="row-value">PDF 1.4</span></li>
+        <li class="row"><span class="row-name"><code>rc4-40</code> 僅供極舊系統，不建議</span><span class="row-value">PDF 1.4</span></li>
+      </ul>
+      <h3 class="ref-group">檢視權限</h3>
+      <ul class="rows" role="list">
+        <li class="row"><span class="row-name">列印文件</span><span class="row-value"><code>print</code></span></li>
+        <li class="row"><span class="row-name">高品質列印</span><span class="row-value"><code>high-quality-print</code></span></li>
+        <li class="row"><span class="row-name">修改內容</span><span class="row-value"><code>modify</code></span></li>
+        <li class="row"><span class="row-name">複製或擷取內容</span><span class="row-value"><code>copy</code></span></li>
+        <li class="row"><span class="row-name">新增或修改註解</span><span class="row-value"><code>annotate</code></span></li>
+        <li class="row"><span class="row-name">填寫表單</span><span class="row-value"><code>fill-forms</code></span></li>
+        <li class="row"><span class="row-name">輔助使用的內容擷取</span><span class="row-value"><code>accessibility</code></span></li>
+        <li class="row"><span class="row-name">組合頁面或大綱</span><span class="row-value"><code>assemble</code></span></li>
+      </ul>
+      <h3 class="ref-group">密碼組合</h3>
+      <ul class="rows" role="list">
+        <li class="row"><span class="row-name">只設開啟密碼：擁有者密碼自動相同，知道密碼的人有完整權限</span><span class="row-value">機密</span></li>
+        <li class="row"><span class="row-name">只設擁有者密碼：任何人都能開啟，但 reader 套用權限限制</span><span class="row-value">唯讀發布</span></li>
+        <li class="row"><span class="row-name">兩者都設：開啟密碼受限，擁有者密碼享完整權限</span><span class="row-value">分級</span></li>
+      </ul>
+    </div>
+    <figure class="reference-figure reveal">
+      <picture>
+        <source srcset="/img/hero-sealed-documents.webp" type="image/webp">
+        <img src="/img/hero-sealed-documents.png" width="960" height="664" alt="三張疊放的米色文件，最上面一張蓋著朱紅色的方形印章，印章中央是鑰匙孔，旁邊放著一支木柄印章。" loading="lazy">
+      </picture>
+    </figure>
+  </section>
+
+  <section id="faq" class="faq" aria-labelledby="faq-title">
+    <h2 id="faq-title" class="reveal">常見問題</h2>
+    <div class="cards" data-cards>
+      <article class="card is-open">
+        <h3><button type="button" class="card-toggle" aria-expanded="true" aria-controls="faq-1"><span class="card-tab">權限</span><span class="card-q">設定「禁止複製」就能防止內容外流嗎？</span></button></h3>
+        <div class="card-body" id="faq-1"><div><p>不能。PDF 權限是 reader 應遵守的限制，不是無法破解的存取控制。真正保護內容機密的是加密後的開啟密碼，請使用夠長、不易猜測的密碼。</p></div></div>
+      </article>
+      <article class="card">
+        <h3><button type="button" class="card-toggle" aria-expanded="false" aria-controls="faq-2"><span class="card-tab">隱私</span><span class="card-q">這個網站會上傳我的 PDF 或密碼嗎？</span></button></h3>
+        <div class="card-body" id="faq-2"><div><p>不會。網站只在瀏覽器裡產生指令文字，實際的加密與解密都由你電腦上的 pdf-encrypt 執行。</p></div></div>
+      </article>
+      <article class="card">
+        <h3><button type="button" class="card-toggle" aria-expanded="false" aria-controls="faq-3"><span class="card-tab">忘記密碼</span><span class="card-q">忘記開啟密碼還能解密嗎？</span></button></h3>
+        <div class="card-body" id="faq-3"><div><p>不能。<code>decrypt</code> 需要正確的開啟密碼或擁有者密碼。只有權限限制、沒有開啟密碼的 PDF，可以省略 <code>--password</code> 直接解密。</p></div></div>
+      </article>
+      <article class="card">
+        <h3><button type="button" class="card-toggle" aria-expanded="false" aria-controls="faq-4"><span class="card-tab">原檔</span><span class="card-q">會覆蓋我的原始檔案嗎？</span></button></h3>
+        <div class="card-body" id="faq-4"><div><p>預設不會。未指定輸出時另存為 <code>&lt;原檔名&gt;_encrypted.pdf</code> 等新檔；只有加上 <code>--in-place</code>，才會在寫入成功後取代原檔。</p></div></div>
+      </article>
+      <article class="card">
+        <h3><button type="button" class="card-toggle" aria-expanded="false" aria-controls="faq-5"><span class="card-tab">平台</span><span class="card-q">支援哪些作業系統與 CPU？</span></button></h3>
+        <div class="card-body" id="faq-5"><div><p>macOS（Apple 晶片與 Intel）、Linux（x64 與 ARM64，glibc 與 musl 皆可）、Windows（x64 與 ARM64）。npm 與安裝指令稿會自動選擇對應的執行檔。</p></div></div>
+      </article>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="footer-mark">
+      <svg class="block-seal" viewBox="0 0 124 124" role="img" aria-label="pdf-encrypt 印章標誌">
+        <g class="blocks">
+          <rect x="0" y="0" width="60" height="28"/><rect x="64" y="0" width="60" height="28"/>
+          <rect x="0" y="32" width="28" height="60"/><rect x="96" y="32" width="28" height="60"/>
+          <rect x="0" y="96" width="60" height="28"/><rect x="64" y="96" width="60" height="28"/>
+          <path fill-rule="evenodd" d="M32 32h60v60H32z M57.9 62A9 9 0 1 1 66.1 62L70 82H54z"/>
+        </g>
+      </svg>
+      <p class="footer-name">pdf-encrypt</p>
+    </div>
+    <div class="footer-links">
+      <div>
+        <h2>專案</h2>
+        <ul role="list">
+          <li><a href="https://github.com/doggy8088/pdf-encrypt" target="_blank" rel="noopener noreferrer">GitHub 原始碼</a></li>
+          <li><a href="https://github.com/doggy8088/pdf-encrypt/releases" target="_blank" rel="noopener noreferrer">版本發行</a></li>
+          <li><a href="https://github.com/doggy8088/pdf-encrypt/issues" target="_blank" rel="noopener noreferrer">回報問題</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>套件</h2>
+        <ul role="list">
+          <li><a href="https://www.npmjs.com/package/@willh/pdf-encrypt" target="_blank" rel="noopener noreferrer">npm：@willh/pdf-encrypt</a></li>
+          <li><a href="https://crates.io/crates/pdf-encrypt" target="_blank" rel="noopener noreferrer">crates.io：pdf-encrypt</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>說明</h2>
+        <ul role="list">
+          <li><a href="https://github.com/doggy8088/pdf-encrypt#readme" target="_blank" rel="noopener noreferrer">README</a></li>
+          <li><a href="https://github.com/doggy8088/pdf-encrypt/tree/main/skills/pdf-encrypt" target="_blank" rel="noopener noreferrer">Agent Skill</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>作者</h2>
+        <ul role="list">
+          <li><a href="https://www.facebook.com/will.fans/" target="_blank" rel="noopener noreferrer">Will 保哥</a></li>
+          <li><a href="https://github.com/doggy8088" target="_blank" rel="noopener noreferrer">GitHub：doggy8088</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-last">
+      <p>© 2026 <a href="https://www.facebook.com/will.fans/" target="_blank" rel="noopener noreferrer">Will 保哥</a>。以 <a href="https://github.com/doggy8088/pdf-encrypt/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT 授權</a>釋出。內容依據 GitHub 原始碼與 <code>pdf-encrypt --help</code> 整理；網站圖片以 AI 生成。npm 是 npm, Inc. 的商標，本網站與 npm, Inc. 無關。</p>
+      <a class="button button-small button-on-seal" href="#main">回到頂端</a>
+    </div>
+  </footer>
+
+  <svg width="0" height="0" class="svg-defs" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="seal" viewBox="0 0 40 40">
+        <path fill-rule="evenodd" fill="currentColor" d="M2 2h36v36H2z M20 11.5a5.5 5.5 0 0 0-3.2 10L14.5 30h11l-2.3-8.5A5.5 5.5 0 0 0 20 11.5z"/>
+      </symbol>
+      <symbol id="seal-plain" viewBox="0 0 40 40">
+        <path fill="currentColor" d="M2 2h36v36H2z"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

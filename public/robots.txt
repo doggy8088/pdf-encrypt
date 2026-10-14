@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://pdf-encrypt.gh.miniasp.com/sitemap.xml
