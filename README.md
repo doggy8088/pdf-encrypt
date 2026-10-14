@@ -342,6 +342,8 @@ fn main() -> anyhow::Result<()> {
 
 ## 開發檢查
 
+crates.io 發布使用 OIDC Trusted Publishing；首次設定與認證驗證步驟見 [Trusted Publishing 設定](docs/trusted-publishing.md)。
+
 ```bash
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings

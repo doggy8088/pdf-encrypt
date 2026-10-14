@@ -10,6 +10,7 @@ homepage = "https://github.com/doggy8088/pdf-encrypt"
 readme = "README.md"
 keywords = ["pdf", "encryption", "decrypt", "cli"]
 categories = ["command-line-utilities", "cryptography"]
+exclude = ["test-output/**"]
 
 [dependencies]
 lopdf = "0.40"

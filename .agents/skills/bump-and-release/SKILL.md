@@ -45,7 +45,7 @@ description: 為 pdf-encrypt 專案提升版本，透過既有 GitHub Actions �
 
 2. 記錄發行提交 SHA。現有 `Release` 工作流程會在推送 `main` 後，以 `Cargo.toml` 版本發布尚不存在的 Release。標準發行只推送該提交至 `main`，讓工作流程建立標籤與資產；同一版本不要再推送標籤或額外 dispatch，以免重複觸發。若流程已變更，依目前設定選擇單一觸發方式。
 3. 推送前確認已授權發布該版本及變更範圍。使用者已明確要求本次發行時直接進行；只授權本機準備時，先提供版本、提交、檢查結果及推送會發布的內容，再取得缺少的授權。
-4. 由 CI 處理 GitHub Release、安裝程式、封裝與 crates.io 發布。一般發行不另行執行 `gh release create` 或 `cargo publish`。`CARGO_REGISTRY_TOKEN` 未設定時，現有工作流程會略過 crates.io 上傳且仍可成功，不能據此聲稱 crate 已發布。
+4. 由 CI 處理 GitHub Release、安裝程式、封裝與 crates.io 發布。一般發行不另行執行 `gh release create` 或 `cargo publish`。crates.io 使用 `crates-io` environment 的 OIDC Trusted Publishing，由認證 action 取得短期 token，不使用長期 GitHub secret。認證失敗須處理 Trusted Publisher 設定，不能略過或據此聲稱 crate 已發布。首次啟用及設定值參閱 [Trusted Publishing 設定](../../../docs/trusted-publishing.md)。
 
 * * *
 
@@ -54,6 +54,7 @@ description: 為 pdf-encrypt 專案提升版本，透過既有 GitHub Actions �
 - 透過 `gh run list` 找到本次提交 SHA 對應的 `CI` 與 `Release` 執行，追蹤至完成；可用 `gh run watch --exit-status`，失敗時讀取 `gh run view --log-failed`。辨識事件與提交，避免將舊執行的成功套用到本次發行。
 - **Release 頁面出現不代表全部發行工作已完成。** GitHub Release 建立後還有 Linux、macOS、套件管理器資訊及 crates.io 工作；核對完整工作流程結果與目前設定要求的資產，不能只等 `host` 成功。
 - 查驗 Release 的標籤實際指向本次發行提交，核對版本、資產及可用的 SHA-256 資訊。若要回報 crates.io 已發布，另以該工作日誌及 registry 查詢確認，不能只看 job 成功。
+- 僅驗證 Trusted Publishing 設定時，可 dispatch `release.yml`，設定 `verify_trusted_publishing=true`、`republish_existing=false`，使用 `main` ref。此模式只驗證 OIDC 認證，不發布 crate、不重建或覆寫 Release 資產；成功不能當成版本已發布。
 - 版本、標籤或 Release 已存在時，先判斷是完整發行、部分失敗，還是使用者要求重發。同一輪失敗先查明原因；重跑前確認既有執行已結束。僅在原因已修正且重跑仍屬本次授權範圍時進行，若相同原因再次失敗則停止並回報。
 - 使用者要求重發既有資產時，使用現有 `workflow_dispatch` 的 `version` 與 `republish_existing=true`，並指定包含相同 `Cargo.toml` 版本及預期程式碼的 ref。該操作會覆寫同名資產，須在已授權範圍內使用；此模式略過 crates.io 發布。維持既有標籤，不移動或強制推送已發布的標籤。需要修改已發布程式碼時，改發新版本。
 - 完成後以正體中文回報版本、提交 SHA、標籤與 Release 連結、檢查結果，以及 crates.io 的實際狀態。若只能完成本機準備、工作流程仍在執行或有工作失敗，明確標示已完成與尚未完成的部分。
