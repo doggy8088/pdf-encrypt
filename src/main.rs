@@ -4,8 +4,8 @@ use anyhow::Context;
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use lopdf::Permissions;
 use pdf_encrypt::{
-    decrypt_pdf_with_options, encrypt_pdf_with_options, DecryptOptions, DocumentInfo,
-    EncryptOptions, EncryptionAlgorithm, PdfCryptoReport,
+    decrypt_pdf_with_options, encrypt_pdf_with_options, read_pdf_properties, DecryptOptions,
+    DocumentInfo, EncryptOptions, EncryptionAlgorithm, PdfCryptoReport,
 };
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -16,8 +16,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const ROOT_AFTER_HELP: &str = r#"AI AGENT GUIDELINES (AI 代理執行與互動規範):
   1. 密碼詢問原則 (Request User Input for Passwords):
      - encrypt 至少須提供 --open-password (-p) 或 --owner-password 其中之一。
-     - 若使用者未提供密碼，或未說明需要「開啟密碼 (-p)」還是「免開啟密碼僅限制權限 (--owner-password)」，
-       AI Agent 必須先向使用者詢問密碼與需求，切勿自行猜測、隨機產生或硬編碼密碼。
+     - 若使用者未提供密碼，AI Agent 必須先向使用者詢問，切勿自行猜測、隨機產生或硬編碼密碼。
+     - 未另行指定加密需求時，採用下方預設加密流程；若使用者要求開啟密碼，則使用 --open-password (-p)。
      - decrypt 解密需要開啟密碼的 PDF 時，若使用者未提供密碼，必須先向使用者詢問 --password (-p)。
      - 重新加密既有加密 PDF 時，若未知舊密碼，必須先向使用者詢問 --input-open-password。
 
@@ -33,7 +33,28 @@ const ROOT_AFTER_HELP: &str = r#"AI AGENT GUIDELINES (AI 代理執行與互動�
      - PDF 權限 (--read-only / --allow / --deny) 為閱讀器應遵守的限制，並非絕對防破解機制。
      - 若需保護文件機密性，請務必設定強密碼 (--open-password) 並使用預設的 --algorithm aes-256。
 
+  4. 預設加密流程與欄位詢問 (Default Workflow & Request User Input):
+     - 使用者未另行指定時，AI Agent 應預設採用下方 DEFAULT ENCRYPT WORKFLOW：免開啟密碼、
+       使用 --owner-password 與 --deny modify --deny assemble，另存新檔並寫入全部八個文件資訊欄位。
+     - 先執行 pdf-encrypt info -i "$PDF_INPUT" --json，唯讀查詢使用者提供的 PDF 文件屬性（Document Info 與 XMP），
+       作為下列文件資訊欄位的預設值；使用者已明確指定的值優先於原檔屬性：
+       --doc-title 標題、--doc-author 作者、--doc-subject 主旨、--doc-keywords 關鍵字；
+       --doc-description 描述、--doc-copyright-status 著作權狀態、--doc-copyright-notice 著作權聲明、
+       --doc-copyright-info-url 著作權資訊網址。
+     - 將讀到的值預填成一份欄位清單，請使用者一次確認，避免逐欄要求重新輸入；只請使用者補充
+       缺少、無法讀取、Document Info 與 XMP 互有衝突的欄位，或提供要修改的值。
+     - 原屬性為空白時，可預填保留空白供使用者一併確認，例如 --doc-keywords ""；
+       JSON 的 null 表示未取得值，"" 表示空字串；檢查 info_status、xmp_status、conflicts 與 warnings，
+       無法讀取的屬性須標示為未讀取，不得當成空白，也不得自行推測或沿用範例值。
+     - 未指定 --output (-o) 時，可將 <原檔名>_encrypted.pdf 作為預設輸出路徑一併確認。
+       若尚未提供輸入路徑或 --owner-password，仍必須詢問；密碼不得由文件屬性推測或自行產生。
+     - 下方 $PDF_* 與 $DOC_* 均為佔位變數，必須先設定為使用者提供或確認的預填值才能執行。
+
 QUICK REFERENCE (指令與密碼／權限規則速覽):
+  * info 文件屬性查詢：
+    - pdf-encrypt info -i report.pdf --json：唯讀輸出文件資訊預設值、兩個來源及衝突／警告。
+    - 需要密碼的輸入檔加上 --password (-p)；免開啟密碼的 PDF 可省略。properties 是 info 的別名。
+
   * encrypt 密碼語意：
     - 僅指定 -p, --open-password <PW>      : 開啟輸出 PDF 需輸入 <PW>；擁有者密碼自動設為相同 <PW>。
     - 僅指定 --owner-password <PW>         : 開啟輸出 PDF 不需密碼；用於搭配 --read-only 或 --allow/--deny 限制權限。
@@ -50,7 +71,24 @@ QUICK REFERENCE (指令與密碼／權限規則速覽):
     - 支援以開啟密碼 (user/open password) 或擁有者密碼 (owner password) 解密，並移除 /Encrypt 字典。
     - 若 PDF 為空開啟密碼（例如僅設 --owner-password 的唯讀 PDF），可省略 -p 或傳入 -p "" 直接解密。
 
+DEFAULT ENCRYPT WORKFLOW (AI 代理預設加密用法；先讀取輸入 PDF 屬性並確認預填值):
+  pdf-encrypt encrypt \
+    -i "$PDF_INPUT" \
+    -o "$PDF_OUTPUT" \
+    --owner-password "$PDF_OWNER_PASSWORD" --deny modify --deny assemble \
+    --doc-title "$DOC_TITLE" \
+    --doc-author "$DOC_AUTHOR" \
+    --doc-subject "$DOC_SUBJECT" \
+    --doc-keywords "$DOC_KEYWORDS" \
+    --doc-description "$DOC_DESCRIPTION" \
+    --doc-copyright-status "$DOC_COPYRIGHT_STATUS" \
+    --doc-copyright-notice "$DOC_COPYRIGHT_NOTICE" \
+    --doc-copyright-info-url "$DOC_COPYRIGHT_INFO_URL"
+
 COMMON EXAMPLES (常用範例):
+  # 查詢文件屬性，供 AI 代理預填文件資訊
+  pdf-encrypt info -i report.pdf --json
+
   # 1. 使用開啟密碼加密 PDF（預設 aes-256，未指定 -o 時預設輸出 report_encrypted.pdf）
   pdf-encrypt encrypt -i report.pdf -o report_locked.pdf -p "$PDF_OPEN_PASSWORD"
 
@@ -86,8 +124,8 @@ OUTPUT REPORT (執行結果報表欄位，可用於驗證執行結果):
 const ENCRYPT_AFTER_HELP: &str = r#"AI AGENT GUIDELINES FOR ENCRYPT (AI 代理加密執行規範):
   1. 詢問必要密碼 (Ask User for Passwords):
      - --open-password (-p) 與 --owner-password 至少必須提供一個。
-     - 若使用者未提供密碼，請先詢問使用者要設定的密碼，以及是否需要「開啟文件時輸入密碼 (-p)」
-       或「開啟免密碼、僅限制唯讀/權限 (--owner-password)」，切勿自行假設或隨機編造密碼。
+     - 若使用者未提供密碼，請先詢問使用者要設定的密碼，切勿自行假設或隨機編造密碼。
+     - 未另行指定加密需求時，採用下方預設加密流程；若使用者要求開啟密碼，則使用 --open-password (-p)。
      - 若輸入 PDF 本身已加密，必須提供 --input-open-password <OLD_PASSWORD>；若未知舊密碼請先詢問使用者。
 
   2. 避免覆蓋確認提示導致非互動環境卡死 (Avoid Interactive [y/N] Stdin Hang):
@@ -96,6 +134,23 @@ const ENCRYPT_AFTER_HELP: &str = r#"AI AGENT GUIDELINES FOR ENCRYPT (AI 代理�
      - 預設請保留原檔（寫入新檔案，勿加 --in-place）。
      - 若目標輸出檔已存在，或使用者要求 --in-place 覆蓋原檔，請先向使用者確認是否覆蓋；
        確認後務必加上 --force (-f) 以非互動方式執行。
+
+  3. 預設加密流程與欄位詢問 (Default Workflow & Request User Input):
+     - 使用者未另行指定時，AI Agent 應預設採用下方 DEFAULT ENCRYPT WORKFLOW：免開啟密碼、
+       使用 --owner-password 與 --deny modify --deny assemble，另存新檔並寫入全部八個文件資訊欄位。
+     - 先執行 pdf-encrypt info -i "$PDF_INPUT" --json，唯讀查詢使用者提供的 PDF 文件屬性（Document Info 與 XMP），
+       作為下列文件資訊欄位的預設值；使用者已明確指定的值優先於原檔屬性：
+       --doc-title 標題、--doc-author 作者、--doc-subject 主旨、--doc-keywords 關鍵字；
+       --doc-description 描述、--doc-copyright-status 著作權狀態、--doc-copyright-notice 著作權聲明、
+       --doc-copyright-info-url 著作權資訊網址。
+     - 將讀到的值預填成一份欄位清單，請使用者一次確認，避免逐欄要求重新輸入；只請使用者補充
+       缺少、無法讀取、Document Info 與 XMP 互有衝突的欄位，或提供要修改的值。
+     - 原屬性為空白時，可預填保留空白供使用者一併確認，例如 --doc-keywords ""；
+       JSON 的 null 表示未取得值，"" 表示空字串；檢查 info_status、xmp_status、conflicts 與 warnings，
+       無法讀取的屬性須標示為未讀取，不得當成空白，也不得自行推測或沿用範例值。
+     - 未指定 --output (-o) 時，可將 <原檔名>_encrypted.pdf 作為預設輸出路徑一併確認。
+       若尚未提供輸入路徑或 --owner-password，仍必須詢問；密碼不得由文件屬性推測或自行產生。
+     - 下方 $PDF_* 與 $DOC_* 均為佔位變數，必須先設定為使用者提供或確認的預填值才能執行。
 
 PASSWORD & PERMISSION RULES (密碼與權限詳細規則):
   * 密碼組合行為：
@@ -135,6 +190,20 @@ PASSWORD & PERMISSION RULES (密碼與權限詳細規則):
     - --doc-copyright-status    : CopyrightStatus / XMP xmpRights:Marked（常用值：Copyrighted 或 Public Domain）
     - --doc-copyright-notice    : CopyrightNotice / XMP dc:rights
     - --doc-copyright-info-url  : CopyrightInfoURL / XMP xmpRights:WebStatement
+
+DEFAULT ENCRYPT WORKFLOW (AI 代理預設加密用法；先讀取輸入 PDF 屬性並確認預填值):
+  pdf-encrypt encrypt \
+    -i "$PDF_INPUT" \
+    -o "$PDF_OUTPUT" \
+    --owner-password "$PDF_OWNER_PASSWORD" --deny modify --deny assemble \
+    --doc-title "$DOC_TITLE" \
+    --doc-author "$DOC_AUTHOR" \
+    --doc-subject "$DOC_SUBJECT" \
+    --doc-keywords "$DOC_KEYWORDS" \
+    --doc-description "$DOC_DESCRIPTION" \
+    --doc-copyright-status "$DOC_COPYRIGHT_STATUS" \
+    --doc-copyright-notice "$DOC_COPYRIGHT_NOTICE" \
+    --doc-copyright-info-url "$DOC_COPYRIGHT_INFO_URL"
 
 EXAMPLES (常用加密範例):
   # 基本開啟密碼加密（預設 aes-256）
@@ -188,12 +257,31 @@ EXAMPLES (常用解密範例):
   # 解密免開啟密碼（空密碼）的唯讀／權限受限 PDF
   pdf-encrypt decrypt -i report_readonly.pdf -o report_unlocked.pdf"#;
 
+const INFO_AFTER_HELP: &str = r#"AI AGENT GUIDELINES FOR INFO (AI 代理文件屬性查詢規範):
+  - 此指令只讀取檔案，不會修改原檔或建立解密副本；適用於其他工具產生的 PDF。
+  - AI 代理應先查詢輸入 PDF 的屬性，以 document_info 預填 --doc-* 欄位，再一次請使用者確認，
+    只補充缺少、衝突、無法讀取或需要修改的值；使用者明確指定的值優先。
+  - document_info 優先採用 Document Info，缺值再取 XMP；保留原本空字串，不將它視為缺值。
+  - info_dictionary 列出可讀的標準及自訂欄位；xmp_properties 以 {namespace URI}local-name 為鍵。
+  - null 表示未取得值，"" 表示空字串；info_status / xmp_status 可為 absent、read、partial 或 unreadable。
+    必須一併檢查 conflicts 與 warnings，不得將解析失敗當成欄位空白。
+  - 需要密碼才能開啟的 PDF，必須提供正確的 --password (-p)；缺少密碼時先詢問使用者。
+    AES-256 可用開啟密碼或擁有者密碼；AES-128／RC4 若開啟密碼非空，須提供開啟密碼，
+    目前 PDF 相依套件無法可靠地以舊版擁有者密碼解密，指令會拒絕回傳可能錯誤的屬性。
+    不支援的加密方式或無法解析的檔案會失敗；錯誤會寫入 stderr 並回傳非零退出碼。
+
+EXAMPLES (文件屬性查詢範例):
+  pdf-encrypt info -i report.pdf
+  pdf-encrypt info -i report.pdf --json
+  pdf-encrypt info -i encrypted.pdf --password "$PDF_PASSWORD" --json
+  pdf-encrypt properties -i report.pdf --json"#;
+
 /// PDF 加密與解密命令列工具。
 #[derive(Debug, Parser)]
 #[command(
     name = "pdf-encrypt",
     version,
-    about = "PDF 加密、解密、權限設定與 Metadata 更新工具（無外部 PDF 工具依賴）",
+    about = "PDF 加密、解密、權限設定與文件屬性讀寫工具（無外部 PDF 工具依賴）",
     long_about = None,
     after_help = ROOT_AFTER_HELP,
     subcommand_required = true,
@@ -206,10 +294,29 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// 唯讀查詢 PDF 文件屬性、Document Info 與 XMP；可輸出 JSON（別名 properties）
+    #[command(visible_alias = "properties")]
+    Info(InfoArgs),
     /// 將 PDF 加密、設定檢視權限或更新 Metadata 並寫出檔案（或以 --in-place 覆蓋原檔）
     Encrypt(Box<EncryptArgs>),
     /// 將已加密 PDF 解密（移除密碼與權限限制）並寫出新檔案
     Decrypt(DecryptArgs),
+}
+
+#[derive(Debug, Args)]
+#[command(after_help = INFO_AFTER_HELP)]
+struct InfoArgs {
+    /// 要讀取文件屬性的 PDF 檔案路徑
+    #[arg(short, long, value_name = "FILE")]
+    input: PathBuf,
+
+    /// 輸入 PDF 的開啟密碼或擁有者密碼；未指定時嘗試空密碼
+    #[arg(short = 'p', long, value_name = "PASSWORD")]
+    password: Option<String>,
+
+    /// 輸出 JSON，供 AI 代理或其他程式讀取；不夾帶完成訊息
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -391,6 +498,7 @@ fn main() {
     let cli = parse_cli_from(std::env::args_os()).unwrap_or_else(|err| err.exit());
 
     let result = match &cli.command {
+        Command::Info(args) => run_info(args),
         Command::Encrypt(args) => run_encrypt(args),
         Command::Decrypt(args) => run_decrypt(args),
     };
@@ -399,6 +507,37 @@ fn main() {
         eprintln!("處理失敗：{err:#}");
         std::process::exit(1);
     }
+}
+
+fn run_info(args: &InfoArgs) -> anyhow::Result<()> {
+    let properties = read_pdf_properties(&args.input, args.password.as_deref())?;
+    let value = serde_json::to_value(&properties)?;
+    let mut stdout = io::stdout().lock();
+    if args.json {
+        serde_json::to_writer_pretty(&mut stdout, &value)?;
+        writeln!(stdout)?;
+    } else {
+        for key in [
+            "pdf_version",
+            "input_encrypted",
+            "pages",
+            "info_status",
+            "xmp_status",
+        ] {
+            writeln!(stdout, "{key}: {}", value[key])?;
+        }
+        for key in ["document_info", "info_dictionary", "xmp_properties"] {
+            writeln!(stdout, "{key}:")?;
+            if let Some(fields) = value[key].as_object() {
+                for (field, value) in fields {
+                    writeln!(stdout, "  {field}: {value}")?;
+                }
+            }
+        }
+        writeln!(stdout, "conflicts: {}", value["conflicts"])?;
+        writeln!(stdout, "warnings: {}", value["warnings"])?;
+    }
+    Ok(())
 }
 
 fn run_encrypt(args: &EncryptArgs) -> anyhow::Result<()> {

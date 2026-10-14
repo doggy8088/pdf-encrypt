@@ -217,7 +217,7 @@ fn cli_encrypt_in_place_overwrites_input_file() {
 }
 
 #[test]
-fn read_only_password_allows_all_except_modify() {
+fn read_only_password_allows_all_except_modify_and_assemble() {
     let dir = tempfile::tempdir().expect("tempdir");
     let input_path = dir.path().join("plain.pdf");
     let output_path = dir.path().join("readonly.pdf");
@@ -239,7 +239,7 @@ fn read_only_password_allows_all_except_modify() {
     assert!(encrypted_permissions.contains(Permissions::COPYABLE));
     assert!(encrypted_permissions.contains(Permissions::ANNOTABLE));
     assert!(encrypted_permissions.contains(Permissions::FILLABLE));
-    assert!(encrypted_permissions.contains(Permissions::ASSEMBLABLE));
+    assert!(!encrypted_permissions.contains(Permissions::ASSEMBLABLE));
     assert!(!encrypted_permissions.contains(Permissions::MODIFIABLE));
 
     let opened_with_viewer = Document::load_with_password(&output_path, "viewer")

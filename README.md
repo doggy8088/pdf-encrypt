@@ -6,6 +6,7 @@
 
 - 加密 PDF，預設使用 `aes-256`。
 - 解密已加密 PDF，輸出不含 `/Encrypt` dictionary 的一般 PDF。
+- 可用 `info` 唯讀查詢 PDF 文件屬性，並用 `--json` 供 AI 代理預填文件資訊欄位。
 - 支援開啟文件密碼 (`--open-password`) 與擁有者密碼 (`--owner-password`)。
 - 可設定 PDF viewer 權限，例如列印、複製、修改、註解、填表等。
 - 可用 `--input-open-password` 先開啟已加密輸入檔，再重新加密成新密碼或新演算法。
@@ -69,6 +70,41 @@ cargo uninstall pdf-encrypt
 ```
 
 ## 使用方式
+
+### 讀取文件屬性
+
+查詢本工具或其他工具產生的 PDF，不會改寫原檔或產生解密副本：
+
+```bash
+pdf-encrypt info -i report.pdf
+pdf-encrypt info -i report.pdf --json
+```
+
+`properties` 是 `info` 的別名。需要開啟密碼的輸入檔可用 `--password`，密碼值由使用者提供：
+
+```bash
+pdf-encrypt info -i encrypted.pdf --password "$PDF_PASSWORD" --json
+```
+
+JSON 輸出包含以下欄位：
+
+| 欄位 | 說明 |
+| --- | --- |
+| `pdf_version`、`pages`、`input_encrypted` | PDF 版本、頁數及原檔是否加密 |
+| `document_info` | 對應八個 `--doc-*` 參數的預填值；優先使用 Document Info，缺值再取 XMP |
+| `info_dictionary` | 可讀的標準及自訂 Document Info 欄位，包含 Creator、Producer、CreationDate、ModDate 等 |
+| `xmp_properties` | 以 `{namespace URI}local-name` 為鍵的 XMP 屬性；陣列保留各項值，複合值保留 XML |
+| `info_status`、`xmp_status` | 來源狀態：`absent` 不存在、`read` 已讀取、`partial` 部分讀取、`unreadable` 無法讀取 |
+| `conflicts` | 同一欄位在 Document Info 與 XMP 中的不同值，包含兩個來源供使用者確認 |
+| `warnings` | 欄位解碼、XMP 解析及無法轉成文字預設值等問題 |
+
+`null` 表示未取得值，`""` 表示原值為空字串。讀取失敗時，仍會保留其他可讀的屬性，並透過來源狀態與警告說明原因。無法開啟或解析 PDF 時，指令會回傳非零退出碼，錯誤訊息寫入 stderr。
+
+AI 代理應先執行 `info --json`，用 `document_info` 預填欄位並一次請使用者確認，只補充缺值、衝突、無法讀取或需要修改的值。使用者明確指定的值優先於原檔屬性。預填前須一併檢查 `conflicts`、來源狀態及 `warnings`，不能把解析失敗視為空白。
+
+支援的加密方式沿用 `lopdf`。AES-256 可使用開啟密碼或擁有者密碼；AES-128／RC4 文件在開啟密碼非空時，須使用開啟密碼查詢，因為目前相依套件的舊版擁有者密碼解密可能產生錯誤值，`info` 會明確拒絕此情況。免開啟密碼的 PDF 可直接查詢。損毀的 PDF、不支援的加密方式或密碼編碼仍可能無法讀取。
+
+* * *
 
 ### 加密
 

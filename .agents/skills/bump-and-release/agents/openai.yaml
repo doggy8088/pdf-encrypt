@@ -1,0 +1,3 @@
+interface:
+  display_name: "版本升級與發行"
+  short_description: "提升 pdf-encrypt 版本並透過既有 GitHub Actions 發行及驗證"

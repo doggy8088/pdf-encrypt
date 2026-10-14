@@ -4,6 +4,9 @@
 //! It can encrypt an unencrypted PDF with RC4/AES profiles or decrypt an
 //! encrypted PDF when the correct user or owner password is provided.
 
+mod properties;
+pub use properties::{read_pdf_properties, MetadataStatus, PdfProperties, PropertyConflict};
+
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -82,8 +85,8 @@ impl PdfOperation {
     }
 }
 
-/// Document information that can be written before encrypting a PDF.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Document information read from a PDF or written before encryption.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct DocumentInfo {
     /// Document title.
     pub title: Option<String>,

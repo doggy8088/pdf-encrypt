@@ -1,6 +1,6 @@
 ---
 name: pdf-encrypt
-description: Encrypt, decrypt, re-encrypt, and apply PDF viewer permissions/metadata with the local Rust `pdf-encrypt` CLI. Use when a user wants to password-protect a PDF, remove PDF encryption when they have the password, create read-only PDF copies, set PDF permissions, change PDF encryption algorithms, or update PDF metadata while encrypting.
+description: Read PDF document properties, encrypt, decrypt, re-encrypt, and apply PDF viewer permissions/metadata with the local Rust `pdf-encrypt` CLI. Use when a user wants to inspect PDF metadata, prefill document information, password-protect a PDF, remove PDF encryption when they have the password, create read-only PDF copies, set PDF permissions, change PDF encryption algorithms, or update PDF metadata while encrypting.
 ---
 
 # pdf-encrypt
@@ -14,11 +14,12 @@ Use this skill to encrypt, decrypt, or re-encrypt PDF files with the `pdf-encryp
 It can:
 
 - Encrypt PDFs with `aes-256` by default.
+- Read document properties with `info` / `properties`, including JSON output for metadata defaults.
 - Decrypt encrypted PDFs when the correct user/open password or owner password is available.
 - Re-encrypt an already encrypted PDF by opening it with the old password and writing a new encrypted output.
 - Create PDFs that do not require an open password but restrict viewer permissions through an owner password.
 - Configure viewer permissions such as print, copy, modify, annotate, fill forms, accessibility extraction, and page assembly.
-- Apply `--read-only` / `-ro`, which means `--allow all --deny modify`.
+- Apply `--read-only` / `-ro`, which means `--allow all --deny modify --deny assemble`.
 - Update Document Info / XMP metadata during encryption.
 - Encrypt in place with `--in-place` after writing a temporary file and replacing the input only after success.
 
@@ -176,6 +177,26 @@ cargo run -- encrypt \
 
 ## Commands and arguments
 
+### `info` / `properties`
+
+以唯讀方式查詢文件屬性，不會改寫原檔或建立解密副本。AI 代理在詢問文件資訊欄位前，先執行：
+
+```bash
+"$TOOL" info -i "$PDF_INPUT" --json
+```
+
+以 `document_info` 的八個欄位預填 `--doc-*` 值，再一次請使用者確認；只補充缺值、衝突、無法讀取或要修改的內容。使用者已指定的值優先於原檔屬性，不要求重新輸入已有值。密碼仍須由使用者提供。
+
+| 參數 | 必要 | 預設 | 用途 |
+| --- | --- | --- | --- |
+| `--input`、`-i` | 是 | 無 | 輸入 PDF 路徑 |
+| `--password`、`-p` | 否 | 空密碼 | 開啟密碼；AES-256 亦可使用擁有者密碼 |
+| `--json` | 否 | 文字報表 | 輸出純 JSON，便於預填欄位 |
+
+`document_info` 優先採用 Document Info，缺值再取 XMP。`null` 表示未取得值，`""` 表示空字串；預填前檢查 `info_status`、`xmp_status`、`conflicts` 與 `warnings`，不可將讀取失敗視為空白。來源狀態可為 `absent`、`read`、`partial`、`unreadable`。額外屬性保留在 `info_dictionary` 與 `xmp_properties`。
+
+需要開啟密碼時先向使用者取得，再加上 `--password "$PDF_PASSWORD"`。目前 PDF 相依套件無法可靠地以舊版擁有者密碼讀取 AES-128／RC4；這類文件若開啟密碼非空，必須提供開啟密碼。讀取失敗時回報原因，不另用其他工具繞過。已解析的執行檔若尚不支援 `info`，須回報需要包含此功能的版本。
+
 ### `encrypt`
 
 | Argument | Required | Default | Purpose |
@@ -187,7 +208,7 @@ cargo run -- encrypt \
 | `--open-password`, `-p` | One of open/owner password is required | Empty if only owner password is set | Password required to open the output PDF. If owner password is omitted, this is also used as owner password. |
 | `--owner-password` | One of open/owner password is required | Same as open password | Owner password. If set without open password, the output opens without a password but has restricted permissions. |
 | `--input-open-password` | No | None | Password used to open an encrypted input before re-encrypting. |
-| `--read-only`, `-ro` | No | `false` | Equivalent to allowing all permissions and denying `modify`. |
+| `--read-only`, `-ro` | No | `false` | Equivalent to allowing all permissions and denying `modify` and `assemble`. |
 | `--algorithm` | No | `aes-256` | Encryption algorithm: `aes-256`, `aes-128`, `rc4-128`, or `rc4-40`. |
 | `--allow` | No | All permissions | Repeatable permission allow-list. If used, only listed permissions are allowed. |
 | `--deny` | No | None | Repeatable permission deny-list removed from the current permission set. |
@@ -229,6 +250,7 @@ cargo run -- encrypt \
 2. If no official executable can be resolved, stop with an error instead of trying unrelated PDF tools.
 3. Preserve the original PDF unless the user explicitly asks for `--in-place`.
 4. Ask the user for required passwords when they are not provided. Prefer passing passwords through environment variables in shell examples instead of embedding secrets directly in commands.
+   When collecting document information, first read `"$TOOL" info -i "$PDF_INPUT" --json` and use the existing properties as defaults for a single confirmation.
 5. For confidential PDFs, prefer `--open-password` with a strong password and keep the default `--algorithm aes-256`.
 6. For read-only sharing without requiring an open password, use `--owner-password` with `--read-only` and optionally stricter `--deny print --deny high-quality-print --deny copy`.
 7. Use `--input-open-password` when re-encrypting an existing encrypted PDF.
