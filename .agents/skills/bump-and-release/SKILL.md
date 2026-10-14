@@ -47,6 +47,7 @@ description: 為 pdf-encrypt 專案提升版本，透過既有 GitHub Actions �
 3. 推送前確認已授權發布該版本及變更範圍。使用者已明確要求本次發行時直接進行；只授權本機準備時，先提供版本、提交、檢查結果及推送會發布的內容，再取得缺少的授權。
 4. 由 CI 處理 GitHub Release、安裝程式、封裝與 crates.io 發布。一般發行不另行執行 `gh release create` 或 `cargo publish`。crates.io 使用 `crates-io` environment 的 OIDC Trusted Publishing，由認證 action 取得短期 token，不使用長期 GitHub secret。認證失敗須處理 Trusted Publisher 設定，不能略過或據此聲稱 crate 已發布。首次啟用及設定值參閱 [Trusted Publishing 設定](../../../docs/trusted-publishing.md)。
 5. npm 套件 `@willh/pdf-encrypt` 及 6 個平台套件由 `publish-npm` job 發布，版本取自 Release 標籤，`npm/` 目錄沒有需要同步的版本字串。該 job 使用 `npm` environment，優先使用 OIDC Trusted Publishing，`NPM_TOKEN` secret 為備援；registry 已有相同版本時略過。若要回報 npm 已發布，以 `npm view @willh/pdf-encrypt version` 查證。設定方式參閱 [npm 發布](../../../docs/npm-publishing.md)。
+6. macOS `.pkg` 由 `macos-pkg` job 簽署（Developer ID Application 簽執行檔、Developer ID Installer 簽 pkg）、公證並 staple，憑證與 API key 位於 `macos-signing` environment。缺少設定時 job 會失敗，不能略過或改發未簽署的 pkg。若要回報 pkg 已公證，以 `pkgutil --check-signature` 與 `spctl --assess --type install` 檢查下載的 Release 資產。設定與憑證輪替參閱 [macOS pkg 簽署與公證](../../../docs/macos-signing.md)。
 
 * * *
 
@@ -55,7 +56,7 @@ description: 為 pdf-encrypt 專案提升版本，透過既有 GitHub Actions �
 - 透過 `gh run list` 找到本次提交 SHA 對應的 `CI` 與 `Release` 執行，追蹤至完成；可用 `gh run watch --exit-status`，失敗時讀取 `gh run view --log-failed`。辨識事件與提交，避免將舊執行的成功套用到本次發行。
 - **Release 頁面出現不代表全部發行工作已完成。** GitHub Release 建立後還有 Linux、macOS、套件管理器資訊及 crates.io 工作；核對完整工作流程結果與目前設定要求的資產，不能只等 `host` 成功。
 - 查驗 Release 的標籤實際指向本次發行提交，核對版本、資產及可用的 SHA-256 資訊。若要回報 crates.io 已發布，另以該工作日誌及 registry 查詢確認，不能只看 job 成功。
-- 僅驗證 Trusted Publishing 設定時，可 dispatch `release.yml`，設定 `verify_trusted_publishing=true`、`republish_existing=false`，使用 `main` ref。此模式只驗證 OIDC 認證，不發布 crate、不重建或覆寫 Release 資產；成功不能當成版本已發布。
+- 僅驗證 Trusted Publishing 設定時，可 dispatch `release.yml`，設定 `verify_trusted_publishing=true`、`republish_existing=false`，使用 `main` ref。此模式驗證 crates.io 與 npm 的 OIDC 認證，並完整執行一次 macOS pkg 簽署、公證與 staple，但不發布 crate 或 npm 套件、不上傳或覆寫 Release 資產；成功不能當成版本已發布。
 - 版本、標籤或 Release 已存在時，先判斷是完整發行、部分失敗，還是使用者要求重發。同一輪失敗先查明原因；重跑前確認既有執行已結束。僅在原因已修正且重跑仍屬本次授權範圍時進行，若相同原因再次失敗則停止並回報。
 - 使用者要求重發既有資產時，使用現有 `workflow_dispatch` 的 `version` 與 `republish_existing=true`，並指定包含相同 `Cargo.toml` 版本及預期程式碼的 ref。該操作會覆寫同名資產，須在已授權範圍內使用；此模式略過 crates.io 發布。維持既有標籤，不移動或強制推送已發布的標籤。需要修改已發布程式碼時，改發新版本。
 - 完成後以正體中文回報版本、提交 SHA、標籤與 Release 連結、檢查結果，以及 crates.io 的實際狀態。若只能完成本機準備、工作流程仍在執行或有工作失敗，明確標示已完成與尚未完成的部分。
