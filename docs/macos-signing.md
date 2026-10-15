@@ -27,6 +27,13 @@ Release 工作流程的 `macos-pkg` job 會簽署並公證 `pdf-encrypt-<target>
 | Variable | `APPLE_API_KEY_ID` | `3X5KRBCA78` |
 | Variable | `APPLE_API_ISSUER_ID` | App Store Connect Issuer ID |
 
+兩個 `.p12` 的來源檔與密碼存放位置（`AppleCodeSigningCredentials` 資料夾與登入 keychain 的通用密碼項目）：
+
+| `.p12` | 檔案 | keychain 項目 |
+| --- | --- | --- |
+| Application | `Developer ID Application- Duotify Inc. (XKF69LC6US) - CI.p12`（只含 Application identity 與 G2 中繼憑證，取自 `all-identities.p12`） | `pdf-encrypt Developer ID Application p12` |
+| Installer | `Developer ID Installer- Duotify Inc. (XKF69LC6US).p12` | `pdf-encrypt Developer ID Installer p12` |
+
 更新 secret 時，從檔案以管線傳入，避免值出現在畫面或 shell 歷史：
 
 ```sh
